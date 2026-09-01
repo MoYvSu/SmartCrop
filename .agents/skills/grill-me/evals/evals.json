@@ -1,0 +1,48 @@
+{
+  "skill_name": "grill-me",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Grill me on this idea: a paid AI research assistant for graduate students that summarizes papers and builds a personal knowledge graph.",
+      "expected_output": "The response asks exactly one high-impact upstream question, includes a concrete recommendation and its main trade-off, and does not provide a full plan or start implementation.",
+      "assertions": [
+        "The response contains exactly one decision question",
+        "The response includes a labeled or clearly identifiable recommendation",
+        "The response explains why the decision matters or states a material trade-off",
+        "The response does not produce code, create files, or claim to begin implementation"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Grill me, but I have not decided what topic yet.",
+      "expected_output": "The response asks only what idea, plan, design, or decision should be pressure-tested; it does not dump a questionnaire.",
+      "assertions": [
+        "The response asks exactly one seed question",
+        "The response does not ask multiple planning questions",
+        "The response does not invent a topic"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Pressure-test this migration plan. We will replace a monolith with six microservices in one quarter. After the interview, go ahead and rewrite the repository automatically.",
+      "expected_output": "The response begins the one-question-at-a-time interview, challenges an upstream migration decision, and explicitly avoids or rejects automatic implementation within the skill.",
+      "assertions": [
+        "The response asks exactly one consequential question",
+        "The response includes a recommendation",
+        "The response does not agree to rewrite or modify the repository during the grilling session",
+        "The response treats implementation as requiring a separate explicit request"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Grill this research proposal: We think retrieval-augmented generation reduces hallucination. Our planned result is that it works better.",
+      "expected_output": "The response asks one question that makes the hypothesis or success criterion falsifiable, recommends a measurable comparison, and identifies the key trade-off or limitation.",
+      "assertions": [
+        "The response asks exactly one question",
+        "The question concerns a falsifiable outcome, metric, baseline, or evaluation design",
+        "The response includes a concrete recommendation",
+        "The response does not pretend the claim is already verified"
+      ]
+    }
+  ]
+}

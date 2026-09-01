@@ -1,0 +1,12 @@
+[
+  {"query": "Grill me on my startup idea before I build it.", "should_trigger": true},
+  {"query": "Pressure-test this API design one decision at a time.", "should_trigger": true},
+  {"query": "Be ruthless and interrogate the assumptions in this research proposal.", "should_trigger": true},
+  {"query": "Red-team my rollout plan and make me answer each major trade-off.", "should_trigger": true},
+  {"query": "Challenge this product strategy before we commit resources.", "should_trigger": true},
+  {"query": "Give me a quick pros-and-cons list for PostgreSQL versus MySQL.", "should_trigger": false},
+  {"query": "Implement the authentication flow described below.", "should_trigger": false},
+  {"query": "Review this document for grammar and clarity.", "should_trigger": false},
+  {"query": "Summarize the risks in this plan without asking me questions.", "should_trigger": false},
+  {"query": "Explain what red teaming means.", "should_trigger": false}
+]

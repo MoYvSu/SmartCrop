@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>美境智剪 · 美学实验室</title>
+    <style>
+        /* ---------- 所有原有样式保持不变，仅移除背景渐变动画以降低重绘 ---------- */
+        :root {
+            --card-bg: rgba(255, 255, 255, 0.88);
+            --card-border: rgba(212, 168, 67, 0.35);
+            --text-primary: #3d2817;
+            --text-secondary: #6b5344;
+            --text-muted: #9c846f;
+            --accent-gold: #c9a227;
+            --accent-coral: #e07a5f;
+            --accent-peach: #f4a261;
+            --accent-warm: #e9c46a;
+            --font-serif: "Noto Serif SC", "Songti SC", serif;
+            --font-sans: "Noto Sans SC", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            /* 静态渐变背景，移除动画，减少重绘闪动 */
+            background: linear-gradient(135deg, #fef9f0 0%, #fdf3e4 25%, #fae8d0 50%, #fdf0d9 75%, #fef9f0 100%);
+            background-size: 200% 200%;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        #bgCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .texture-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .texture-paper {
+            opacity: 0.06;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.04' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23paper)'/%3E%3C/svg%3E");
+            mix-blend-mode: multiply;
+        }
+        .texture-noise {
+            opacity: 0.035;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+        .texture-fabric {
+            opacity: 0.04;
+            background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(139, 90, 43, 0.03) 2px, rgba(139, 90, 43, 0.03) 4px),
+                              repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(139, 90, 43, 0.03) 2px, rgba(139, 90, 43, 0.03) 4px);
+        }
+
+        /* 保留 warm-glow 动画，但数量未减（性能影响相对较小） */
+        .warm-glow {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(40px);
+            z-index: 0;
+            opacity: 0.45;
+            animation: warmFloat 14s ease-in-out infinite;
+            will-change: transform;
+        }
+        .glow-1 { width: 550px; height: 550px; background: radial-gradient(circle, rgba(233, 196, 106, 0.5) 0%, transparent 70%); top: -250px; right: -200px; }
+        .glow-2 { width: 500px; height: 500px; background: radial-gradient(circle, rgba(244, 162, 97, 0.4) 0%, transparent 70%); bottom: -200px; left: -200px; animation-delay: 5s; }
+        .glow-3 { width: 450px; height: 450px; background: radial-gradient(circle, rgba(224, 122, 95, 0.3) 0%, transparent 70%); top: 35%; left: 55%; transform: translate(-50%, -50%); animation-delay: 10s; }
+        .glow-4 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(201, 162, 39, 0.35) 0%, transparent 70%); top: 15%; left: 15%; animation-delay: 3s; }
+        .glow-5 { width: 380px; height: 380px; background: radial-gradient(circle, rgba(255, 200, 150, 0.3) 0%, transparent 70%); bottom: 30%; right: 25%; animation-delay: 7s; }
+
+        @keyframes warmFloat {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(35px, -25px) scale(1.06); }
+            50% { transform: translate(-20px, 30px) scale(0.97); }
+            75% { transform: translate(25px, 15px) scale(1.03); }
+        }
+
+        .geo-line {
+            position: fixed;
+            background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.15), transparent);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .line-1 { width: 100%; height: 1px; top: 20%; animation: lineShimmer 8s ease-in-out infinite; }
+        .line-2 { width: 1px; height: 100%; left: 15%; background: linear-gradient(180deg, transparent, rgba(201, 162, 39, 0.12), transparent); animation: lineShimmer 10s ease-in-out infinite; animation-delay: 2s; }
+        .line-3 { width: 60%; height: 1px; bottom: 25%; right: 0; background: linear-gradient(90deg, transparent, rgba(244, 162, 97, 0.18), transparent); animation: lineShimmer 12s ease-in-out infinite; animation-delay: 4s; }
+
+        @keyframes lineShimmer {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.7; }
+        }
+
+        .geo-ring {
+            position: fixed;
+            border: 1px solid rgba(201, 162, 39, 0.12);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .ring-1 { width: 300px; height: 300px; top: 10%; right: 10%; animation: ringPulse 15s ease-in-out infinite; }
+        .ring-2 { width: 250px; height: 250px; bottom: 15%; left: 8%; border-color: rgba(244, 162, 97, 0.1); animation: ringPulse 18s ease-in-out infinite; animation-delay: 3s; }
+        .ring-3 { width: 200px; height: 200px; top: 50%; left: 50%; transform: translate(-50%, -50%); border-color: rgba(233, 196, 106, 0.08); animation: ringPulse 20s ease-in-out infinite; animation-delay: 6s; }
+
+        @keyframes ringPulse {
+            0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.4; }
+            50% { transform: scale(1.05) rotate(180deg); opacity: 0.7; }
+        }
+
+        /* 减少 sparkle 数量但保留样式 */
+        .sparkle {
+            position: fixed;
+            width: 3px;
+            height: 3px;
+            background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0) 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+            animation: sparkleTwinkle 5s ease-in-out infinite;
+            will-change: opacity, transform;
+        }
+        @keyframes sparkleTwinkle {
+            0%, 100% { opacity: 0; transform: scale(0.5); }
+            50% { opacity: 0.8; transform: scale(1.2); }
+        }
+
+        .light-dust {
+            position: fixed;
+            width: 6px;
+            height: 6px;
+            background: radial-gradient(circle, rgba(255, 215, 180, 0.6) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+            animation: dustFloat 20s linear infinite;
+            will-change: transform, opacity;
+        }
+        @keyframes dustFloat {
+            0% { transform: translateY(100vh) translateX(0) rotate(0deg); opacity: 0; }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.6; }
+            100% { transform: translateY(-100px) translateX(50px) rotate(360deg); opacity: 0; }
+        }
+
+        .leaf-decoration {
+            position: fixed;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.08;
+        }
+        .leaf-1 { width: 80px; height: 80px; top: 5%; left: 5%; background: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M50 0 Q80 30 50 100 Q20 30 50 0' fill='rgba(201, 162, 39, 0.5)'/%3E%3C/svg%3E") no-repeat center; animation: leafSway 8s ease-in-out infinite; }
+        .leaf-2 { width: 60px; height: 60px; bottom: 10%; right: 8%; background: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M50 0 Q80 30 50 100 Q20 30 50 0' fill='rgba(244, 162, 97, 0.5)'/%3E%3C/svg%3E") no-repeat center; animation: leafSway 10s ease-in-out infinite; animation-delay: 2s; transform: scaleX(-1); }
+
+        @keyframes leafSway {
+            0%, 100% { transform: rotate(-5deg); }
+            50% { transform: rotate(5deg); }
+        }
+
+        /* 手机首屏紧凑排版 */
+        header {
+            padding: 1.6rem 1.5rem 0.8rem;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+            transition: padding 0.2s ease;
+        }
+        h1 {
+            font-family: var(--font-serif);
+            font-weight: 400;
+            font-size: 3rem;
+            letter-spacing: 0.35em;
+            background: linear-gradient(135deg, #c9a227 0%, #e07a5f 50%, #f4a261 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.2rem;
+            filter: drop-shadow(0 2px 8px rgba(201, 162, 39, 0.25));
+        }
+        .subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: var(--font-serif);
+            font-style: italic;
+            letter-spacing: 0.25em;
+            margin-bottom: 0.4rem;
+        }
+
+        .features-section {
+            max-width: 520px;
+            margin: 0 auto 0.8rem;
+            padding: 0 1.2rem;
+            position: relative;
+            z-index: 1;
+        }
+        .features-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--card-border);
+            border-radius: 18px;
+            padding: 1.2rem 1.3rem;
+            text-align: center;
+            box-shadow: 0 12px 35px rgba(201, 162, 39, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            position: relative;
+            overflow: hidden;
+        }
+        .features-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+        }
+        .features-title {
+            font-family: var(--font-serif);
+            font-size: 1rem;
+            color: var(--accent-gold);
+            margin-bottom: 0.8rem;
+            letter-spacing: 0.18em;
+            font-weight: 500;
+        }
+        .features-list {
+            list-style: none;
+            text-align: left;
+        }
+        .features-list li {
+            padding: 0.55rem 0;
+            border-bottom: 1px solid rgba(201, 162, 39, 0.12);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.7rem;
+        }
+        .features-list li:last-child { border-bottom: none; }
+        .features-list li::before {
+            content: '✦';
+            color: var(--accent-coral);
+            font-size: 0.85rem;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .features-list strong {
+            color: var(--text-primary);
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.15rem;
+            font-family: var(--font-serif);
+            font-size: 0.85rem;
+        }
+        .features-list span {
+            color: var(--text-muted);
+            font-size: 0.74rem;
+            line-height: 1.4;
+        }
+
+        main {
+            flex: 1;
+            padding: 0 1.2rem 0.5rem;
+            max-width: 620px;
+            margin: 0 auto;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid var(--card-border);
+            border-radius: 22px;
+            padding: 1.4rem 1.5rem;
+            margin-bottom: 0.8rem;
+            box-shadow: 0 20px 60px rgba(201, 162, 39, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: 20%;
+            right: 20%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 30px 80px rgba(201, 162, 39, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.96);
+            border-color: rgba(201, 162, 39, 0.45);
+        }
+        .upload-section {
+            text-align: center;
+            border: 2px dashed rgba(201, 162, 39, 0.35);
+            background: rgba(255, 255, 255, 0.75);
+            padding: 1.2rem 1.2rem;
+        }
+        .upload-icon { font-size: 2.5rem; margin-bottom: 0.3rem; display: block; filter: drop-shadow(0 0 12px rgba(201, 162, 39, 0.3)); }
+        .upload-text { font-family: var(--font-serif); color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.4; }
+        .btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 0.9rem;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #e07a5f 0%, #f4a261 100%);
+            color: #ffffff;
+            padding: 0.7rem 1.6rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: none;
+            font-family: var(--font-sans);
+            box-shadow: 0 8px 20px rgba(224, 122, 95, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+            transition: left 0.6s ease;
+        }
+        .btn:hover::before { left: 100%; }
+        .btn:hover { transform: scale(1.03); box-shadow: 0 12px 30px rgba(224, 122, 95, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+        .btn:active { transform: scale(0.98); }
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--accent-gold);
+            color: var(--accent-gold);
+            box-shadow: none;
+        }
+        .btn-outline:hover {
+            background: rgba(201, 162, 39, 0.12);
+            border-color: var(--accent-coral);
+            color: var(--accent-coral);
+            box-shadow: 0 5px 20px rgba(224, 122, 95, 0.2);
+        }
+
+        footer {
+            text-align: center;
+            padding: 0.7rem 1rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            border-top: 1px solid rgba(201, 162, 39, 0.15);
+            margin-top: auto;
+            position: relative;
+            z-index: 1;
+            background: transparent;
+        }
+
+        /* 其余功能组件样式保持不变 */
+        #fileInput, #cameraInput {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        .preview-container { display: none; animation: fadeIn 0.5s ease; }
+        .preview-image {
+            width: 100%;
+            border-radius: 14px;
+            box-shadow: 0 20px 50px rgba(201, 162, 39, 0.25);
+            display: block;
+            object-fit: cover;
+            max-height: 420px;
+            border: 3px solid rgba(201, 162, 39, 0.25);
+        }
+        .preview-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1.2rem;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+        .result-container { display: none; animation: slideUp 0.65s cubic-bezier(0.4, 0, 0.2, 1); }
+        .result-header {
+            font-family: var(--font-serif);
+            font-size: 1.5rem;
+            color: var(--accent-gold);
+            margin-bottom: 2.2rem;
+            border-bottom: 2px solid rgba(201, 162, 39, 0.25);
+            padding-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            letter-spacing: 0.12em;
+        }
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2.2rem;
+            justify-items: center; 
+        }
+        .cropped-image-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 14px;
+            background: rgba(254, 249, 240, 0.6);
+            border: 2px solid rgba(201, 162, 39, 0.25);
+            box-shadow: 0 10px 30px rgba(201, 162, 39, 0.12);
+        }
+        .cropped-image {
+            width: 100%;
+            height: auto;
+            display: block;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .cropped-image-wrapper:hover .cropped-image { transform: scale(1.06); }
+        .guidance-text {
+            font-family: var(--font-serif);
+            color: var(--text-secondary);
+            font-size: 0.98rem;
+            text-align: justify;
+            line-height: 2;
+            background: rgba(255, 255, 255, 0.65);
+            padding: 1.8rem;
+            border-radius: 14px;
+            border: 1px solid rgba(201, 162, 39, 0.18);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+        .guidance-text p { margin-bottom: 1.3rem; }
+        .guidance-text strong {
+            color: var(--accent-gold);
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.6rem;
+            font-size: 1.08rem;
+            letter-spacing: 0.05em;
+            font-family: var(--font-serif);
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 3.5rem 1rem;
+            color: var(--text-secondary);
+            font-family: var(--font-serif);
+            font-size: 1.15rem;
+        }
+        .spinner {
+            width: 55px;
+            height: 55px;
+            border: 3px solid rgba(201, 162, 39, 0.15);
+            border-radius: 50%;
+            border-top-color: var(--accent-gold);
+            border-right-color: var(--accent-coral);
+            border-bottom-color: var(--accent-peach);
+            border-left-color: var(--accent-warm);
+            animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            margin: 0 auto 1.8rem;
+            box-shadow: 0 0 20px rgba(201, 162, 39, 0.2);
+        }
+        .preview-container, .loading, .result-container, .upload-section {
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            will-change: opacity, transform;
+        }
+
+        .state-hidden {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transform: translateY(10px);
+            height: 0;
+            overflow: hidden;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(50px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+        
+        /* 极小高度设备微调 */
+        @media (max-height: 640px) {
+            header { padding: 0.8rem 1.5rem 0.4rem; }
+            .features-card { padding: 0.9rem 1rem; }
+            .features-list li { padding: 0.4rem 0; }
+            .upload-section { padding: 0.9rem 1rem; }
+            .btn { padding: 0.55rem 1.4rem; }
+            footer { padding: 0.4rem; }
+        }
+        @media (max-width: 480px) {
+            h1 { font-size: 2.4rem; letter-spacing: 0.28em; }
+            .card { padding: 1.2rem 1.2rem; }
+            .btn { padding: 0.65rem 1.4rem; font-size: 0.82rem; }
+            .preview-actions { flex-direction: column; align-items: center; }
+            .preview-actions .btn { width: 100%; max-width: 260px; }
+        }
+
+        
+    </style>
+</head>
+<body>
+    <!-- 装饰元素数量保持不变，但 sparkle/dust 会由 JS 动态减少 -->
+    <canvas id="bgCanvas"></canvas>
+    <div class="texture-layer texture-paper"></div>
+    <div class="texture-layer texture-noise"></div>
+    <div class="texture-layer texture-fabric"></div>
+    <div class="warm-glow glow-1"></div>
+    <div class="warm-glow glow-2"></div>
+    <div class="warm-glow glow-3"></div>
+    <div class="warm-glow glow-4"></div>
+    <div class="warm-glow glow-5"></div>
+    <div class="geo-line line-1"></div>
+    <div class="geo-line line-2"></div>
+    <div class="geo-line line-3"></div>
+    <div class="geo-ring ring-1"></div>
+    <div class="geo-ring ring-2"></div>
+    <div class="geo-ring ring-3"></div>
+    <div id="sparklesContainer"></div>
+    <div id="dustContainer"></div>
+    <div class="leaf-decoration leaf-1"></div>
+    <div class="leaf-decoration leaf-2"></div>
+
+    <header>
+        <h1>美境智剪</h1>
+        <div class="subtitle">AI Aesthetics & Composition</div>
+    </header>
+
+    <section class="features-section">
+        <div class="features-card">
+            <h2 class="features-title">✦ 美境智剪 能为您做什么 ✦</h2>
+            <ul class="features-list">
+                <li><div><strong>智能美学分析</strong><span>基于深度学习模型，评估照片的构图、光影、色彩搭配</span></div></li>
+                <li><div><strong>专业裁剪建议</strong><span>根据黄金分割与视觉重心，生成最优裁剪方案</span></div></li>
+                <li><div><strong>个性化指导</strong><span>提供详细的改进建议，帮助您提升摄影美学水平</span></div></li>
+                <li><div><strong>隐私保护</strong><span>照片经过深度处理，分析完成后不保存原始文件</span></div></li>
+            </ul>
+        </div>
+    </section>
+
+    <main>
+        <section class="card upload-section" id="uploadSection">
+            <span class="upload-icon">📸</span>
+            <p class="upload-text">上传您的作品，让美境智剪发现美学潜能</p>
+            <div class="btn-group">
+                <button class="btn" id="btnCamera">📷 拍摄照片</button>
+                <button class="btn btn-outline" id="btnUpload">📁 本地上传</button>
+            </div>
+            <input type="file" id="cameraInput" accept="image/*" capture="environment">
+            <input type="file" id="fileInput" accept="image/*">
+        </section>
+
+        <section class="card preview-container" id="previewContainer">
+            <img id="previewImage" class="preview-image" alt="预览图片">
+            <div class="preview-actions">
+                <button class="btn" id="btnAnalyze">✨ 开始美学分析</button>
+                <button class="btn btn-outline" id="btnSmartCropPreview">✂️ 智能裁剪</button>
+                <button class="btn btn-outline" id="btnBackHome">🏠 返回首页</button>
+            </div>
+        </section>
+
+        <div class="loading" id="loadingState">
+            <div class="spinner"></div>
+            <p>美境智剪 正在分析构图与光影...</p>
+        </div>
+
+        <section class="card result-container" id="resultContainer">
+            <div class="result-header">
+                <span>✦</span>
+                <span>美学分析报告</span>
+                <span>✦</span>
+            </div>
+            <div class="result-grid">
+                <div class="cropped-image-wrapper" id="croppedImageWrapper">
+                    <img id="resultImage" class="cropped-image" src="" alt="美境智剪 裁剪建议">
+                    <div style="padding: 1rem; text-align: center; font-size: 0.88rem; color: var(--accent-gold); margin-top: 0.5rem; letter-spacing: 0.18em; font-family: var(--font-serif);">美境智剪 · 重构视角</div>
+                </div>
+                <div class="guidance-text" id="guidanceText"></div>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 1rem; margin-top: 2rem; flex-wrap: wrap;">
+                <button class="btn btn-outline" id="btnReset">分析另一张</button>
+                <button class="btn" id="btnDownload" style="background: linear-gradient(135deg, var(--accent-coral), var(--accent-peach)); color: white; border: none;">下载裁剪图</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Powered by 美境智剪 AI 模型</p>
+        <p>Aesthetics Lab</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // ========== 配置区 ==========
+            const API_URL = 'https://transparish-caroyln-unriddled.ngrok-free.dev';
+            const MAX_WIDTH = 1200;
+            const MAX_HEIGHT = 1200;
+            const JPEG_QUALITY = 0.85;
+            
+            // DOM 元素
+            const btnCamera = document.getElementById('btnCamera');
+            const btnUpload = document.getElementById('btnUpload');
+            const btnAnalyze = document.getElementById('btnAnalyze');
+            const btnSmartCropPreview = document.getElementById('btnSmartCropPreview');
+            const btnBackHome = document.getElementById('btnBackHome');
+            const btnReset = document.getElementById('btnReset');
+            const btnDownload = document.getElementById('btnDownload');
+            const cameraInput = document.getElementById('cameraInput');
+            const fileInput = document.getElementById('fileInput');
+            const uploadSection = document.getElementById('uploadSection');
+            const previewContainer = document.getElementById('previewContainer');
+            const previewImage = document.getElementById('previewImage');
+            const loadingState = document.getElementById('loadingState');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultImage = document.getElementById('resultImage');
+            const guidanceText = document.getElementById('guidanceText');
+            const croppedImageWrapper = document.getElementById('croppedImageWrapper');
+            const bgCanvas = document.getElementById('bgCanvas');
+            const ctx = bgCanvas.getContext('2d');
+            const sparklesContainer = document.getElementById('sparklesContainer');
+            const dustContainer = document.getElementById('dustContainer');
+            
+            let currentFile = null;
+            let lastBbox = null;
+            let particles = [];
+            
+            // ---------- 性能优化：减少粒子数量（从35减到18），降低连线阈值 ----------
+            const PARTICLE_COUNT = 18;      // 原35 → 18
+            const LINE_DISTANCE = 80;       // 原140 → 80，减少连线数量
+            
+            class Particle {
+                constructor() { this.reset(); }
+                reset() {
+                    this.x = Math.random() * bgCanvas.width;
+                    this.y = Math.random() * bgCanvas.height;
+                    this.size = Math.random() * 2 + 0.8;
+                    this.speedX = (Math.random() - 0.5) * 0.3;
+                    this.speedY = (Math.random() - 0.5) * 0.3;
+                    const colors = ['rgba(201, 162, 39, 0.35)','rgba(244, 162, 97, 0.3)','rgba(233, 196, 106, 0.32)','rgba(224, 122, 95, 0.25)'];
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                    this.life = 300;
+                }
+                update() {
+                    this.x += this.speedX;
+                    this.y += this.speedY;
+                    this.life -= 0.2;
+                    if (this.life <= 0 || this.x < 0 || this.x > bgCanvas.width || this.y < 0 || this.y > bgCanvas.height) this.reset();
+                }
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.fill();
+                }
+            }
+            
+            function initParticles() {
+                particles = [];
+                for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(new Particle());
+            }
+            initParticles();
+            
+            // 帧率限制: 约 30fps
+            let lastFrameTime = 0;
+            function animate(now) {
+                if (now - lastFrameTime < 33) {
+                    requestAnimationFrame(animate);
+                    return;
+                }
+                lastFrameTime = now;
+                ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+                particles.forEach(p => { p.update(); p.draw(); });
+                ctx.strokeStyle = 'rgba(201, 162, 39, 0.06)';
+                ctx.lineWidth = 0.35;
+                // 双重循环连线，但距离阈值降低，减少开销
+                for (let i = 0; i < particles.length; i++) {
+                    for (let j = i + 1; j < particles.length; j++) {
+                        const dx = particles[i].x - particles[j].x;
+                        const dy = particles[i].y - particles[j].y;
+                        if (Math.sqrt(dx*dx + dy*dy) < LINE_DISTANCE) {
+                            ctx.beginPath();
+                            ctx.moveTo(particles[i].x, particles[i].y);
+                            ctx.lineTo(particles[j].x, particles[j].y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+            animate();
+            
+            // 减少 sparkle 和 dust 数量（原40 sparkle → 15，原20 dust → 8）
+            function createSparkles() {
+                const sparkleCount = 15;
+                for (let i = 0; i < sparkleCount; i++) {
+                    const s = document.createElement('div');
+                    s.className = 'sparkle';
+                    s.style.left = Math.random() * 100 + '%';
+                    s.style.top = Math.random() * 100 + '%';
+                    s.style.animationDelay = Math.random() * 5 + 's';
+                    s.style.animationDuration = (4 + Math.random() * 3) + 's';
+                    sparklesContainer.appendChild(s);
+                }
+            }
+            createSparkles();
+            
+            function createDust() {
+                const dustCount = 8;
+                for (let i = 0; i < dustCount; i++) {
+                    const d = document.createElement('div');
+                    d.className = 'light-dust';
+                    d.style.left = Math.random() * 100 + '%';
+                    d.style.animationDelay = Math.random() * 20 + 's';
+                    d.style.animationDuration = (18 + Math.random() * 12) + 's';
+                    dustContainer.appendChild(d);
+                }
+            }
+            createDust();
+            
+            // 首屏自适应函数，优化 resize 防抖 + requestAnimationFrame 避免强制同步布局
+            function adjustFirstScreen() {
+                if (previewContainer.style.display === 'block' || resultContainer.style.display === 'block') return;
+                const vh = window.innerHeight;
+                const headerEl = document.querySelector('header');
+                const featuresEl = document.querySelector('.features-section');
+                const mainUpload = document.querySelector('.upload-section');
+                const footerEl = document.querySelector('footer');
+                if (!headerEl || !featuresEl || !mainUpload) return;
+                
+                let totalHeight = headerEl.offsetHeight + featuresEl.offsetHeight + mainUpload.offsetHeight + (footerEl?.offsetHeight || 0);
+                let safety = 0;
+                while (totalHeight > vh && safety < 5) {
+                    let curPad = parseFloat(getComputedStyle(headerEl).paddingTop);
+                    if (curPad > 8) headerEl.style.paddingTop = (curPad * 0.92) + 'px';
+                    let curPadBottom = parseFloat(getComputedStyle(headerEl).paddingBottom);
+                    if (curPadBottom > 6) headerEl.style.paddingBottom = (curPadBottom * 0.92) + 'px';
+                    const card = document.querySelector('.features-card');
+                    if (card) {
+                        let fp = parseFloat(getComputedStyle(card).paddingTop);
+                        if (fp > 6) card.style.paddingTop = (fp * 0.94) + 'px';
+                        let fpb = parseFloat(getComputedStyle(card).paddingBottom);
+                        if (fpb > 6) card.style.paddingBottom = (fpb * 0.94) + 'px';
+                    }
+                    let upPad = parseFloat(getComputedStyle(mainUpload).paddingTop);
+                    if (upPad > 8) mainUpload.style.paddingTop = (upPad * 0.94) + 'px';
+                    let upPadB = parseFloat(getComputedStyle(mainUpload).paddingBottom);
+                    if (upPadB > 8) mainUpload.style.paddingBottom = (upPadB * 0.94) + 'px';
+                    
+                    totalHeight = headerEl.offsetHeight + featuresEl.offsetHeight + mainUpload.offsetHeight + (footerEl?.offsetHeight || 0);
+                    safety++;
+                }
+            }
+            
+            // resize 防抖 + RAF
+            let resizeTimer;
+            window.addEventListener('resize', function() {
+                if (previewContainer.style.display !== 'block' && resultContainer.style.display !== 'block') {
+                    clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(() => {
+                        requestAnimationFrame(() => adjustFirstScreen());
+                    }, 200);
+                }
+            });
+            
+            // 重置功能
+            function resetToUpload() {
+                currentFile = null;
+                lastBbox = null;
+                fileInput.value = '';
+                cameraInput.value = '';
+                previewImage.src = '';
+                guidanceText.innerHTML = '';
+                resultImage.src = '';
+                croppedImageWrapper.style.display = 'block';
+                loadingState.classList.remove('state-hidden');
+                resultContainer.classList.add('state-hidden');
+                uploadSection.style.display = 'block';
+                previewContainer.classList.add('state-hidden');
+                const headerEl = document.querySelector('header');
+                const card = document.querySelector('.features-card');
+                const mainUpload = document.querySelector('.upload-section');
+                if (headerEl) { headerEl.style.paddingTop = ''; headerEl.style.paddingBottom = ''; }
+                if (card) { card.style.paddingTop = ''; card.style.paddingBottom = ''; }
+                if (mainUpload) { mainUpload.style.paddingTop = ''; mainUpload.style.paddingBottom = ''; }
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                setTimeout(() => requestAnimationFrame(adjustFirstScreen), 50);
+            }
+            
+            function handleFileSelect(file) {
+                if (!file) return;
+                if (!file.type.startsWith('image/')) {
+                    alert('请选择图片文件');
+                    return;
+                }
+                currentFile = file;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImage.src = e.target.result;
+                    uploadSection.style.display = 'none';
+                    previewContainer.style.display = 'block';
+                    resultContainer.style.display = 'none';
+                    // 清除首屏紧凑样式
+                    const headerEl = document.querySelector('header');
+                    const card = document.querySelector('.features-card');
+                    const mainUpload = document.querySelector('.upload-section');
+                    if (headerEl) { headerEl.style.paddingTop = ''; headerEl.style.paddingBottom = ''; }
+                    if (card) { card.style.paddingTop = ''; card.style.paddingBottom = ''; }
+                    if (mainUpload) { mainUpload.style.paddingTop = ''; mainUpload.style.paddingBottom = ''; }
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            // ---------- 以下为原有功能（压缩、分析、裁剪）完全保持不变 ----------
+            function compressImage(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            let width = img.width, height = img.height;
+                            if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                                if (width / MAX_WIDTH > height / MAX_HEIGHT) {
+                                    height = (height * MAX_WIDTH) / width;
+                                    width = MAX_WIDTH;
+                                } else {
+                                    width = (width * MAX_HEIGHT) / height;
+                                    height = MAX_HEIGHT;
+                                }
+                            }
+                            const canvas = document.createElement('canvas');
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            canvas.toBlob(blob => resolve(blob), 'image/jpeg', JPEG_QUALITY);
+                        };
+                        img.onerror = reject;
+                        img.src = e.target.result;
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+            
+            function cropImageByBbox(imgElement, bbox) {
+                return new Promise((resolve, reject) => {
+                    if (!imgElement.complete || imgElement.naturalWidth === 0) {
+                        imgElement.onload = () => doCrop();
+                        imgElement.onerror = reject;
+                    } else { doCrop(); }
+                    function doCrop() {
+                        const [x1, y1, x2, y2] = bbox;
+                        const width = x2 - x1, height = y2 - y1;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(imgElement, x1, y1, width, height, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.9));
+                    }
+                });
+            }
+            
+            async function performAnalysis() {
+                if (!currentFile) { alert('请先选择一张图片'); return null; }
+                previewContainer.style.display = 'none';
+                loadingState.style.display = 'block';
+                resultContainer.style.display = 'none';
+                resultImage.src = '';
+                guidanceText.innerHTML = '';
+                croppedImageWrapper.style.display = 'block';
+                try {
+                    const compressedBlob = await compressImage(currentFile);
+                    const formData = new FormData();
+                    formData.append('file', compressedBlob, 'photo.jpg');
+                    const submitRes = await fetch(`${API_URL}/predict`, { method: 'POST', body: formData, headers: { "ngrok-skip-browser-warning": "true" } });
+                    if (!submitRes.ok) throw new Error(`提交失败 HTTP ${submitRes.status}`);
+                    const submitData = await submitRes.json();
+                    const taskId = submitData.task_id;
+                    if (!taskId) throw new Error("未获取到任务ID");
+                    let pollCount = 0, maxPolls = 30, finalData = null;
+                    while (pollCount < maxPolls) {
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        const pollRes = await fetch(`${API_URL}/result/${taskId}`, { headers: { "ngrok-skip-browser-warning": "true" } });
+                        if (!pollRes.ok) throw new Error(`查询失败 HTTP ${pollRes.status}`);
+                        const pollData = await pollRes.json();
+                        if (pollData.status === "success") { finalData = pollData.data; break; }
+                        else if (pollData.status === "failed") throw new Error(pollData.error || "后端处理失败");
+                        pollCount++;
+                    }
+                    if (!finalData) throw new Error("分析超时");
+                    const analysisText = finalData.aesthetic_evaluation || finalData.full_response || '暂无分析结果';
+                    const safeText = String(analysisText);
+                    const formattedText = safeText.replace(/\n/g, '</p><p>');
+                    guidanceText.innerHTML = `<p>${formattedText}</p><p style="text-align: right; margin-top: 1.5rem; font-style: italic;">— 美境智剪 AI 美学模型</p>`;
+                    const bboxRaw = finalData.bounding_box || null;
+                    lastBbox = null;
+                    if (bboxRaw && typeof bboxRaw === 'string') {
+                        try {
+                            const parsedArray = bboxRaw.replace(/[\[\]]/g, '').split(',').map(item => parseFloat(item.trim()) || 0);
+                            if (parsedArray.length === 4) {
+                                const x1_norm = Math.min(parsedArray[0], parsedArray[2]), y1_norm = Math.min(parsedArray[1], parsedArray[3]);
+                                const x2_norm = Math.max(parsedArray[0], parsedArray[2]), y2_norm = Math.max(parsedArray[1], parsedArray[3]);
+                                const imgW = previewImage.naturalWidth, imgH = previewImage.naturalHeight;
+                                if (imgW > 0 && imgH > 0) {
+                                    const x1 = Math.round((x1_norm / 1000) * imgW), y1 = Math.round((y1_norm / 1000) * imgH);
+                                    const x2 = Math.round((x2_norm / 1000) * imgW), y2 = Math.round((y2_norm / 1000) * imgH);
+                                    lastBbox = [Math.max(0, Math.min(x1, imgW)), Math.max(0, Math.min(y1, imgH)), Math.max(0, Math.min(x2, imgW)), Math.max(0, Math.min(y2, imgH))];
+                                }
+                            }
+                        } catch(e) { console.warn(e); }
+                    }
+                    loadingState.style.display = 'none';
+                    resultContainer.style.display = 'block';
+                    resultContainer.scrollIntoView({ behavior: 'smooth' });
+                    if (lastBbox) setTimeout(() => smartCrop(), 500);
+                    return { success: true, bbox: lastBbox, text: analysisText };
+                } catch(err) {
+                    alert('分析失败：' + err.message);
+                    loadingState.style.display = 'none';
+                    previewContainer.style.display = 'block';
+                    resultContainer.style.display = 'none';
+                    return { success: false };
+                }
+            }
+            
+            async function smartCrop() {
+                if (!currentFile) { alert('请先选择一张图片'); return; }
+                if (!previewImage.complete || previewImage.naturalWidth === 0) { alert('图片尚未加载完成'); return; }
+                if (lastBbox) {
+                    loadingState.style.display = 'block';
+                    resultContainer.style.display = 'none';
+                    previewContainer.style.display = 'none';
+                    try {
+                        const croppedDataUrl = await cropImageByBbox(previewImage, lastBbox);
+                        resultImage.src = croppedDataUrl;
+                        croppedImageWrapper.style.display = 'block';
+                        loadingState.style.display = 'none';
+                        resultContainer.style.display = 'block';
+                        resultContainer.scrollIntoView({ behavior: 'smooth' });
+                    } catch(err) { alert('裁剪失败'); loadingState.style.display = 'none'; previewContainer.style.display = 'block'; }
+                    return;
+                }
+                const analysisResult = await performAnalysis();
+                if (analysisResult && analysisResult.success && analysisResult.bbox) {
+                    try {
+                        const croppedDataUrl = await cropImageByBbox(previewImage, analysisResult.bbox);
+                        resultImage.src = croppedDataUrl;
+                        croppedImageWrapper.style.display = 'block';
+                    } catch(err) { alert('裁剪失败'); }
+                } else if (!analysisResult?.success) { /* already handled */ }
+                else alert('无法获取裁剪坐标');
+            }
+            
+            // 事件绑定
+            btnCamera.addEventListener('click', () => cameraInput.click());
+            btnUpload.addEventListener('click', () => fileInput.click());
+            cameraInput.addEventListener('change', e => handleFileSelect(e.target.files[0]));
+            fileInput.addEventListener('change', e => handleFileSelect(e.target.files[0]));
+            btnAnalyze.addEventListener('click', performAnalysis);
+            btnSmartCropPreview.addEventListener('click', smartCrop);
+            btnBackHome.addEventListener('click', resetToUpload);
+            btnReset.addEventListener('click', resetToUpload);
+            btnDownload.addEventListener('click', () => {
+                const resultImage = document.getElementById('resultImage');
+                
+                // 1. 检查是否有图片内容
+                if (!resultImage.src || resultImage.src.includes('data:image/png;base64,iVBOR')) {
+                    alert('暂无可下载的裁剪图片');
+                    return;
+                }
+                
+                // 2. 判断是否是移动端
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    // 📱 手机端：不触发 a 标签下载，而是弹出优雅的提示
+                    alert('💡 提示：请【长按】下方的裁剪图片，在弹出的菜单中选择「保存到相册」或「发送给朋友」即可。');
+                } else {
+                    // 💻 电脑端：继续使用 a 标签下载
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = resultImage.src; 
+                    downloadLink.download = `Venus_Crop_${new Date().getTime()}.jpg`; 
+                    
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
+                }
+            });
+            
+            croppedImageWrapper.style.display = 'none';
+            
+            // 初始化首屏自适应
+            requestAnimationFrame(adjustFirstScreen);
+            
+            // 确保 canvas 大小自适应
+            function resizeCanvas() { bgCanvas.width = window.innerWidth; bgCanvas.height = window.innerHeight; }
+            resizeCanvas();
+            window.addEventListener('resize', () => { resizeCanvas(); });
+        });
+    </script>
+</body>
+</html>

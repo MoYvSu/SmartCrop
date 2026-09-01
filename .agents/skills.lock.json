@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "grill-me",
+      "version": "2.0.0",
+      "source": "https://github.com/liq22/grill-me",
+      "ref": "a4023fff80e76bb43da3f6a2c6a7c8c797172d58",
+      "path": ".",
+      "license": "MIT"
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "version": "2.15.0",
+      "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "ref": "a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5",
+      "path": ".claude/skills/ui-ux-pro-max",
+      "license": "MIT"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage*
+
+# JavaScript
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Runtime data
+var/
+uploads/
+results/
+reports/
+
+# Models and large generated artifacts
+models/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Existing independently versioned research checkout.
+# It will be replaced by an explicit third-party/submodule boundary after its
+# current dirty worktree has been reconciled.
+/Venus_CVPR2026/
