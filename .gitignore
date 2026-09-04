@@ -42,6 +42,7 @@ checkpoints/
 *.bin
 
 # IDE and OS
+.ipynb_checkpoints/
 .idea/
 .vscode/
 .DS_Store
