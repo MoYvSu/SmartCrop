@@ -1,5 +1,4 @@
 import pytest
-
 from smartcrop_worker.backends.venus import (
     _extract_crop_box,
     _normalize_report_payload,

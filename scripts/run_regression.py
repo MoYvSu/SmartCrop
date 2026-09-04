@@ -14,6 +14,20 @@ from PIL import Image
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 
 
+def report_language(report: dict) -> str:
+    values = [
+        report["overview"],
+        *report["strengths"],
+        *report["issues"],
+        report["crop_rationale"],
+        *report["shooting_tips"],
+    ]
+    text = "".join(value for value in values if isinstance(value, str))
+    letters = [character for character in text if character.isalpha()]
+    chinese_count = sum("\u4e00" <= character <= "\u9fff" for character in letters)
+    return "zh-CN" if chinese_count and chinese_count / len(letters) >= 0.4 else "other"
+
+
 def wait_for_job(
     client: httpx.Client,
     job_id: str,
@@ -81,6 +95,7 @@ def main() -> None:
                     status="passed",
                     duration_seconds=round(time.monotonic() - started, 2),
                     crop=job["final_crop"],
+                    report_language=report_language(job["report"]),
                 )
             except Exception as exc:  # noqa: BLE001 - every case must be recorded
                 entry.update(
@@ -100,6 +115,10 @@ def main() -> None:
         "base_url": args.base_url,
         "passed": sum(item["status"] == "passed" for item in results),
         "failed": sum(item["status"] == "failed" for item in results),
+        "report_languages": {
+            "zh-CN": sum(item.get("report_language") == "zh-CN" for item in results),
+            "other": sum(item.get("report_language") == "other" for item in results),
+        },
         "results": results,
     }
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

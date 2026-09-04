@@ -16,12 +16,9 @@ ANALYSIS_MAX_NEW_TOKENS = 512
 CROP_MAX_NEW_TOKENS = 96
 REPORT_MAX_NEW_TOKENS = 384
 
-# These two prompts intentionally match the upstream Venus evaluation tasks.
-AESTHETIC_PROMPT = "Please critically analyze this image from an aesthetic perspective."
-CROP_PROMPT = (
-    "Please provide the bounding box coordinate of the most visually balanced and "
-    "aesthetically pleasing composition area."
-)
+# These prompts are direct Chinese equivalents of the two upstream Venus evaluation tasks.
+AESTHETIC_PROMPT = "请从美学角度专业、具体地分析这张图片。请使用简体中文。"
+CROP_PROMPT = "请给出画面中视觉最平衡、最美观的构图区域边界框坐标。只返回两个角点坐标。"
 
 PLACEHOLDER_TEXT = {
     "整体观察",
@@ -170,7 +167,7 @@ def _build_report_prompt(analysis: str, crop: CropBox) -> str:
 </analysis>
 
 Venus 建议的归一化裁剪坐标是 {crop_xyxy}。
-请把已有评论整理为简体中文报告。只整理、翻译和概括已有内容，不添加原评论未提及的可见事实。
+请把已有评论整理为结构化报告。只整理和概括已有内容，不添加原评论未提及的可见事实。
 只返回一个 JSON 对象，不要使用 Markdown，也不要输出 JSON 以外的文字。
 JSON 必须包含且只包含以下字段：
 - overview：一句整体观察字符串；
