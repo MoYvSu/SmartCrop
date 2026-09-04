@@ -1,5 +1,5 @@
 import { FileImage, LockKeyhole, UploadCloud, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   accessCode: string;
@@ -14,8 +14,19 @@ const MAX_BYTES = 20 * 1024 * 1024;
 export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl("");
+      return undefined;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const choose = (candidate?: File) => {
     if (!candidate) return;
@@ -57,7 +68,7 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
 
         <button
           type="button"
-          className={`drop-zone ${dragging ? "is-dragging" : ""}`}
+          className={`drop-zone ${dragging ? "is-dragging" : ""} ${previewUrl ? "has-preview" : ""}`}
           aria-describedby={error ? "upload-error" : undefined}
           onClick={() => inputRef.current?.click()}
           onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -69,7 +80,11 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
             choose(event.dataTransfer.files[0]);
           }}
         >
-          <UploadCloud aria-hidden="true" size={30} />
+          {previewUrl ? (
+            <img className="upload-preview" src={previewUrl} alt={`已选择图片预览：${file?.name || "图片"}`} />
+          ) : (
+            <UploadCloud aria-hidden="true" size={30} />
+          )}
           <strong>{file ? "已选择图片" : "拖入图片，或点击浏览"}</strong>
           <span>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "只处理单张图片"}</span>
         </button>

@@ -105,6 +105,11 @@ h2 { font-size: 24px; }
   color: var(--muted-foreground); background: rgba(15, 23, 42, 0.52); transition: border-color 180ms ease, background 180ms ease;
 }
 .drop-zone:hover, .drop-zone.is-dragging { border-color: var(--accent); background: rgba(34, 211, 238, 0.06); }
+.drop-zone.has-preview { min-height: 300px; padding: 14px; }
+.upload-preview {
+  display: block; width: 100%; height: 220px; object-fit: contain; border-radius: 10px;
+  background: #070b14; box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+}
 .drop-zone svg { color: #a78bfa; }
 .drop-zone strong { color: var(--foreground); font-size: 16px; }
 .drop-zone span { font-size: 13px; }

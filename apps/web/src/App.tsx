@@ -206,7 +206,6 @@ export default function App() {
               report={job.report}
               adjusted={job.manual_adjusted || cropDirty}
               manualOnly={job.manual_only || !job.report}
-              analysisError={job.error?.message}
             />
           </main>
         )}

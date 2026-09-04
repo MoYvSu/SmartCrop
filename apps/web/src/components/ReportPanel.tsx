@@ -6,10 +6,9 @@ interface Props {
   report: AestheticReport | null;
   adjusted: boolean;
   manualOnly: boolean;
-  analysisError?: string;
 }
 
-export function ReportPanel({ report, adjusted, manualOnly, analysisError }: Props) {
+export function ReportPanel({ report, adjusted, manualOnly }: Props) {
   return (
     <aside className="report-panel" aria-labelledby="report-heading">
       <div className="section-heading">
@@ -24,7 +23,7 @@ export function ReportPanel({ report, adjusted, manualOnly, analysisError }: Pro
         <div className="manual-mode-note" role="status">
           <CircleAlert size={18} aria-hidden="true" />
           <span>
-            AI 分析未生成{analysisError ? `：${analysisError}` : ""}。当前只提供手动裁剪，不会伪造分析报告。
+            模型分析失败，请稍后重试；也可继续使用手动裁剪。当前只提供手动裁剪，未生成分析报告。
           </span>
         </div>
       )}

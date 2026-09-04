@@ -86,6 +86,15 @@ class VenusBackend:
             model_options["load_in_8bit"] = True
         model = AutoModelForCausalLM.from_pretrained(model_path, **model_options).eval()
 
+        # Qwen-VL derives the visual input dtype from the first visual MLP weight.
+        # With bitsandbytes that weight is int8, while the patch convolution remains
+        # fp16; casting pixels to int8 then fails at the convolution. Keep the visual
+        # activation dtype aligned with the convolution without modifying upstream code.
+        if load_in_8bit:
+            visual = model.transformer.visual
+            visual_dtype = visual.conv1.weight.dtype
+            visual.transformer.get_cast_dtype = lambda: visual_dtype
+
         self.tokenizer = tokenizer
         self.model = model
 
