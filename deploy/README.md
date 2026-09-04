@@ -77,12 +77,15 @@ SMARTCROP_LOAD_IN_8BIT=true
 ```bash
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate /root/autodl-tmp/envs/smartcrop
-cd /root/autodl-tmp/SmartCrop
+cd /root/autodl-tmp/models/Venus-Q-Stage2
 set -a
 source /root/autodl-tmp/smartcrop.env
 set +a
 smartcrop-worker
 ```
+
+worker 从模型目录启动是有意为之：上游 Qwen tokenizer 首次加载时会把 `SimSun.ttf`
+写到当前目录。这样运行期模型资产不会污染项目 Git 工作区。
 
 另一个进程：
 
