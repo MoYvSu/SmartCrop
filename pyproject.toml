@@ -24,10 +24,15 @@ dev = [
   "ruff>=0.7,<1",
 ]
 venus = [
-  "accelerate>=1,<2",
+  "accelerate>=0.21,<1",
   "bitsandbytes>=0.45,<1",
+  "einops>=0.6,<1",
+  "scipy>=1.10,<2",
+  "tiktoken>=0.5,<1",
   "torch>=2.5,<3",
-  "transformers>=4.45,<5",
+  "torchvision>=0.20,<1",
+  "transformers==4.32.0",
+  "transformers-stream-generator==0.0.4",
 ]
 
 [project.scripts]

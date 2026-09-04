@@ -51,7 +51,7 @@ Copy-Item .env.example .env
 
 ## GPU 主机运行
 
-在 Linux / AutoDL 主机安装 CUDA 对应的 PyTorch 和项目 Venus 依赖，设置：
+在 Linux / AutoDL 主机使用 Python 3.10，安装 CUDA 对应的 PyTorch 和项目 Venus 依赖，设置：
 
 ```bash
 export SMARTCROP_WORKER_BACKEND=venus
