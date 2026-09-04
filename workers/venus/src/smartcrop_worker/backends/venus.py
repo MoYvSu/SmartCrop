@@ -70,6 +70,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     raise ValueError("模型返回了不完整的 JSON")
 
 
+def _normalize_string_lists(payload: dict[str, Any]) -> None:
+    for field in ("strengths", "issues", "shooting_tips"):
+        value = payload.get(field)
+        if isinstance(value, str) and value.strip():
+            payload[field] = [value.strip()]
+
+
 class VenusBackend:
     def __init__(self, model_path: Path, load_in_8bit: bool = True):
         if not model_path.exists():
@@ -113,6 +120,7 @@ class VenusBackend:
         raw_box = payload.pop("crop_box", None)
         if not isinstance(raw_box, list):
             raise ValueError("模型结果缺少 crop_box")
+        _normalize_string_lists(payload)
         text_values = [payload.get("overview"), payload.get("crop_rationale")]
         for field in ("strengths", "issues", "shooting_tips"):
             value = payload.get(field)
