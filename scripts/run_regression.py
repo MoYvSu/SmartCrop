@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -93,10 +93,10 @@ def main() -> None:
 
     output_dir = root / "var" / "regression"
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output_path = output_dir / f"regression-{timestamp}.json"
     payload = {
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "base_url": args.base_url,
         "passed": sum(item["status"] == "passed" for item in results),
         "failed": sum(item["status"] == "failed" for item in results),

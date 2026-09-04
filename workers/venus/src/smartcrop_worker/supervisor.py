@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from smartcrop_runtime import JobStore, Settings
 
@@ -72,7 +72,7 @@ class WorkerSupervisor:
 
                 running = self.store.get_running()
                 if running and running.started_at:
-                    elapsed = (datetime.now(UTC) - running.started_at).total_seconds()
+                    elapsed = (datetime.now(timezone.utc) - running.started_at).total_seconds()
                     if elapsed > self.settings.task_timeout_seconds:
                         LOGGER.error(
                             "Hard timeout for job %s after %.1fs; replacing inference process",
