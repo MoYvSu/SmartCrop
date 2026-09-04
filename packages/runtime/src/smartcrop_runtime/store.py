@@ -15,7 +15,7 @@ def utc_now() -> datetime:
 
 
 def to_iso(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat()
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def from_iso(value: str | None) -> datetime | None:
