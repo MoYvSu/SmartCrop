@@ -12,18 +12,23 @@ from .base import InferenceResult
 PROMPT = """
 请分析这张图片的构图与美学质量，并给出最佳裁剪框。
 只返回一个 JSON 对象，不要使用 Markdown，不要添加 JSON 之外的文字。
-字段必须严格为：
-{
-  "overview": "整体观察",
-  "strengths": ["优点1", "优点2"],
-  "issues": ["问题1", "问题2"],
-  "crop_rationale": "裁剪理由",
-  "shooting_tips": ["建议1", "建议2"],
-  "crop_box": [x1, y1, x2, y2]
-}
+对象必须包含 overview、strengths、issues、crop_rationale、shooting_tips 和 crop_box 六个字段。
+overview、crop_rationale 是具体中文字符串；strengths、issues、shooting_tips 是具体中文字符串数组。
+每段文字必须描述当前图片的可见内容，禁止复述字段名、占位词或本指令。
 crop_box 使用 0 到 1000 的整数坐标，原图左上角为 [0, 0]，右下角为 [1000, 1000]。
 不要给出美学分数或星级。使用简体中文。
 """.strip()
+
+PLACEHOLDER_TEXT = {
+    "整体观察",
+    "优点1",
+    "优点2",
+    "问题1",
+    "问题2",
+    "裁剪理由",
+    "建议1",
+    "建议2",
+}
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -108,6 +113,13 @@ class VenusBackend:
         raw_box = payload.pop("crop_box", None)
         if not isinstance(raw_box, list):
             raise ValueError("模型结果缺少 crop_box")
+        text_values = [payload.get("overview"), payload.get("crop_rationale")]
+        for field in ("strengths", "issues", "shooting_tips"):
+            value = payload.get(field)
+            if isinstance(value, list):
+                text_values.extend(value)
+        if any(value in PLACEHOLDER_TEXT for value in text_values):
+            raise ValueError("模型返回了提示词占位内容")
         crop = CropBox.from_xyxy_1000(raw_box)
         report = Report.model_validate(payload)
         return InferenceResult(crop=crop, report=report)
