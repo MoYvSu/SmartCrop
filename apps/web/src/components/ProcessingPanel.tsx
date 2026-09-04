@@ -18,7 +18,7 @@ export function ProcessingPanel({ job, onReset }: Props) {
         <div className="progress-track" aria-label="分析进行中"><span /></div>
         <div className="processing-meta">
           <span>单 GPU 串行处理</span>
-          <span>运行超时 120 秒</span>
+          <span>等待上限 120 秒</span>
         </div>
         <button type="button" className="text-button" onClick={onReset}>返回上传页</button>
       </section>
