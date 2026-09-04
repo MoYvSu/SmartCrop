@@ -14,19 +14,20 @@
 ├── envs/smartcrop/            # Python + Node.js 环境
 ├── models/Venus-Q-Stage2/     # Hugging Face 模型
 ├── smartcrop-data/            # 上传、裁剪和 SQLite
-├── .cache/                    # Conda、pip、HF、Corepack、pnpm 缓存
+├── .cache/                    # Conda、pip、HF、Corepack、pnpm 缓存与临时文件
 └── smartcrop.env              # 私有运行配置，不进入 Git
 ```
 
 ## 安装与构建
 
 ```bash
-mkdir -p /root/autodl-tmp/.cache/{conda/pkgs,pip,huggingface,corepack,pnpm/store,npm}
+mkdir -p /root/autodl-tmp/.cache/{conda/pkgs,pip,huggingface,corepack,pnpm/store,npm,tmp}
 export CONDA_PKGS_DIRS=/root/autodl-tmp/.cache/conda/pkgs
 export PIP_CACHE_DIR=/root/autodl-tmp/.cache/pip
 export HF_HOME=/root/autodl-tmp/.cache/huggingface
 export COREPACK_HOME=/root/autodl-tmp/.cache/corepack
 export npm_config_cache=/root/autodl-tmp/.cache/npm
+export TMPDIR=/root/autodl-tmp/.cache/tmp
 
 source /root/miniconda3/etc/profile.d/conda.sh
 conda create -p /root/autodl-tmp/envs/smartcrop python=3.10 nodejs=22 -c conda-forge -y
@@ -53,7 +54,9 @@ hf download popo28/Venus-Q-Stage2 \
 
 `hf` 由 `huggingface-hub` 提供；如命令不存在，先运行
 `python -m pip install -U huggingface-hub`。公开模型通常无需令牌；遇到访问限制时再运行
-`hf auth login`。
+`hf auth login`。AutoDL 的 `/etc/network_turbo` 只用于 GitHub/Hugging Face 下载，不用于
+pip：它可能把 NVIDIA wheel 改写到更慢的代理。需要模型加速时，在运行 `hf download` 的
+同一个 shell 中先执行 `source /etc/network_turbo`。
 
 复制 `.env.example` 到 `/root/autodl-tmp/smartcrop.env`，至少修改访问码，并将路径设置为：
 
