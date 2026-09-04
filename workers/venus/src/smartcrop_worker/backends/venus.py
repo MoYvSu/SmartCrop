@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,10 @@ from typing import Any
 from smartcrop_contracts import CropBox, Report
 
 from .base import InferenceResult
+
+LOGGER = logging.getLogger("smartcrop.worker.venus")
+MAX_GENERATION_ATTEMPTS = 2
+MAX_NEW_TOKENS = 768
 
 PROMPT = """
 请分析这张图片的构图与美学质量，并给出最佳裁剪框。
@@ -111,12 +116,34 @@ class VenusBackend:
                 {"text": PROMPT},
             ]
         )
-        response, _history = self.model.chat(
-            self.tokenizer,
-            query=query,
-            history=None,
-        )
-        payload = _extract_json_object(str(response))
+        last_error: ValueError | None = None
+        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+            response, _history = self.model.chat(
+                self.tokenizer,
+                query=query,
+                history=None,
+                max_new_tokens=MAX_NEW_TOKENS,
+            )
+            response_text = str(response)
+            try:
+                return self._build_result(response_text)
+            except ValueError as exc:
+                last_error = exc
+                LOGGER.warning(
+                    "Rejected Venus response on attempt %d/%d "
+                    "(length=%d, closed_object=%s): %s",
+                    attempt,
+                    MAX_GENERATION_ATTEMPTS,
+                    len(response_text),
+                    response_text.rstrip().endswith("}"),
+                    exc,
+                )
+
+        raise ValueError("模型连续返回了无效的结构化结果") from last_error
+
+    @staticmethod
+    def _build_result(response: str) -> InferenceResult:
+        payload = _extract_json_object(response)
         raw_box = payload.pop("crop_box", None)
         if not isinstance(raw_box, list):
             raise ValueError("模型结果缺少 crop_box")
