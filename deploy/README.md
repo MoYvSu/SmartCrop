@@ -14,12 +14,20 @@
 ├── envs/smartcrop/            # Python + Node.js 环境
 ├── models/Venus-Q-Stage2/     # Hugging Face 模型
 ├── smartcrop-data/            # 上传、裁剪和 SQLite
+├── .cache/                    # Conda、pip、HF、Corepack、pnpm 缓存
 └── smartcrop.env              # 私有运行配置，不进入 Git
 ```
 
 ## 安装与构建
 
 ```bash
+mkdir -p /root/autodl-tmp/.cache/{conda/pkgs,pip,huggingface,corepack,pnpm/store,npm}
+export CONDA_PKGS_DIRS=/root/autodl-tmp/.cache/conda/pkgs
+export PIP_CACHE_DIR=/root/autodl-tmp/.cache/pip
+export HF_HOME=/root/autodl-tmp/.cache/huggingface
+export COREPACK_HOME=/root/autodl-tmp/.cache/corepack
+export npm_config_cache=/root/autodl-tmp/.cache/npm
+
 source /root/miniconda3/etc/profile.d/conda.sh
 conda create -p /root/autodl-tmp/envs/smartcrop python=3.10 nodejs=22 -c conda-forge -y
 conda activate /root/autodl-tmp/envs/smartcrop
@@ -32,7 +40,7 @@ cd /root/autodl-tmp/SmartCrop
 python -m pip install -e '.[venus]'
 corepack enable
 corepack prepare pnpm@11.19.0 --activate
-pnpm --dir apps/web install --frozen-lockfile
+pnpm --dir apps/web --store-dir /root/autodl-tmp/.cache/pnpm/store install --frozen-lockfile
 pnpm --dir apps/web build
 ```
 
