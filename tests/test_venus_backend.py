@@ -1,5 +1,6 @@
 import pytest
 from smartcrop_worker.backends.venus import (
+    _build_direct_report_prompt,
     _extract_crop_box,
     _normalize_report_payload,
 )
@@ -40,3 +41,14 @@ def test_normalize_report_payload_flattens_model_variants() -> None:
         "crop_rationale": "收拢边缘以突出主体。",
         "shooting_tips": ["拍摄时留意背景。"],
     }
+
+
+def test_direct_report_prompt_uses_image_task_without_raw_analysis() -> None:
+    prompt = _build_direct_report_prompt(
+        _extract_crop_box("(100, 200), (800, 900)")
+    )
+
+    assert "Analyze this image directly" in prompt
+    assert "Write every value in English" in prompt
+    assert "[100, 200, 800, 900]" in prompt
+    assert "original analysis" not in prompt.lower()

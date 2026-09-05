@@ -12,15 +12,26 @@ from .base import InferenceResult
 
 LOGGER = logging.getLogger("smartcrop.worker.venus")
 MAX_GENERATION_ATTEMPTS = 2
-ANALYSIS_MAX_NEW_TOKENS = 512
 CROP_MAX_NEW_TOKENS = 96
 REPORT_MAX_NEW_TOKENS = 384
 
-# These prompts are direct Chinese equivalents of the two upstream Venus evaluation tasks.
-AESTHETIC_PROMPT = "请从美学角度专业、具体地分析这张图片。请使用简体中文。"
-CROP_PROMPT = "请给出画面中视觉最平衡、最美观的构图区域边界框坐标。只返回两个角点坐标。"
+# Venus is trained and evaluated primarily with English instructions. Keep both
+# product tasks direct and in English so the model is never asked to translate or
+# restructure an earlier free-form response.
+CROP_PROMPT = (
+    "Please provide the bounding box coordinate of the most visually balanced and "
+    "aesthetically pleasing composition area. Return only two corner coordinates."
+)
 
 PLACEHOLDER_TEXT = {
+    "overview",
+    "strength 1",
+    "strength 2",
+    "issue 1",
+    "issue 2",
+    "crop rationale",
+    "tip 1",
+    "tip 2",
     "整体观察",
     "优点1",
     "优点2",
@@ -153,7 +164,7 @@ def _extract_crop_box(text: str) -> CropBox:
     return CropBox.from_xyxy_1000(values)
 
 
-def _build_report_prompt(analysis: str, crop: CropBox) -> str:
+def _build_direct_report_prompt(crop: CropBox) -> str:
     crop_xyxy = [
         round(crop.x * 1000),
         round(crop.y * 1000),
@@ -161,21 +172,21 @@ def _build_report_prompt(analysis: str, crop: CropBox) -> str:
         round((crop.y + crop.height) * 1000),
     ]
     return f"""
-下面是 Venus 对一张图片生成的原始美学评论：
-<analysis>
-{analysis}
-</analysis>
+Analyze this image directly as a professional photography critic. The recommended
+crop in normalized 0-1000 coordinates is {crop_xyxy}.
 
-Venus 建议的归一化裁剪坐标是 {crop_xyxy}。
-请把已有评论整理为结构化报告。只整理和概括已有内容，不添加原评论未提及的可见事实。
-只返回一个 JSON 对象，不要使用 Markdown，也不要输出 JSON 以外的文字。
-JSON 必须包含且只包含以下字段：
-- overview：一句整体观察字符串；
-- strengths：1 至 3 条画面优点的字符串数组；
-- issues：1 至 3 条主要问题的字符串数组；
-- crop_rationale：一句说明该裁剪如何改善构图的字符串；
-- shooting_tips：1 至 3 条下次拍摄建议的字符串数组。
-不要给出分数、星级、字段名占位词或空内容。
+Return exactly one valid JSON object and no Markdown or extra text. The object must
+contain exactly these fields:
+- "overview": one concise sentence about the image;
+- "strengths": an array of 1 to 3 concise strengths;
+- "issues": an array of 1 to 3 concise issues;
+- "crop_rationale": one concise sentence explaining how the recommended crop
+  improves the composition;
+- "shooting_tips": an array of 1 to 3 practical suggestions for a future shot.
+
+Write every value in English. Base every observation on the visible image. Do not
+include scores, star ratings, placeholders, empty values, or crop coordinates in
+the JSON values.
 """.strip()
 
 
@@ -240,11 +251,11 @@ class VenusBackend:
                 )
         raise ValueError("模型连续返回了无效的裁剪坐标") from last_error
 
-    def _generate_report(self, analysis: str, crop: CropBox) -> Report:
-        prompt = _build_report_prompt(analysis, crop)
+    def _generate_report(self, image_path: Path, crop: CropBox) -> Report:
+        prompt = _build_direct_report_prompt(crop)
         last_error: ValueError | None = None
         for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
-            response = self._chat(prompt, REPORT_MAX_NEW_TOKENS)
+            response = self._chat(prompt, REPORT_MAX_NEW_TOKENS, image_path)
             try:
                 payload = _normalize_report_payload(_extract_json_object(response))
                 text_values = [
@@ -269,7 +280,6 @@ class VenusBackend:
         raise ValueError("模型连续返回了无效的结构化报告") from last_error
 
     def analyze(self, image_path: Path) -> InferenceResult:
-        analysis = self._chat(AESTHETIC_PROMPT, ANALYSIS_MAX_NEW_TOKENS, image_path)
         crop = self._generate_crop(image_path)
-        report = self._generate_report(analysis, crop)
+        report = self._generate_report(image_path, crop)
         return InferenceResult(crop=crop, report=report)
