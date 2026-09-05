@@ -48,10 +48,10 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
         <p className="eyebrow">AI aesthetic cropping</p>
         <h1>把注意力留给画面本身</h1>
         <p className="intro-copy">
-          上传一张照片，Venus 会分析构图关系、给出裁剪建议和可执行的拍摄改进方向。
+          上传一张照片，Venus 会以英文分析构图关系、给出裁剪建议和可执行的拍摄改进方向。
         </p>
         <dl className="intro-facts">
-          <div><dt>输出</dt><dd>一张最佳裁剪 + 中文分析</dd></div>
+          <div><dt>输出</dt><dd>一张最佳裁剪 + 英文美学分析</dd></div>
           <div><dt>隐私</dt><dd>任务文件将在 1 小时后清理</dd></div>
           <div><dt>格式</dt><dd>JPEG、PNG、WebP，最大 20 MB</dd></div>
         </dl>

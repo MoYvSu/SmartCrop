@@ -13,8 +13,9 @@ export function ReportPanel({ report, adjusted, manualOnly }: Props) {
     <aside className="report-panel" aria-labelledby="report-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{manualOnly ? "Manual crop" : "Venus 分析"}</p>
+          <p className="eyebrow">{manualOnly ? "Manual crop" : "Venus 原生输出"}</p>
           <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : "美学分析报告"}</h2>
+          {!manualOnly && <p className="report-language-note">报告正文由 Venus 直接生成，目前为英文。</p>}
         </div>
         <Sparkles aria-hidden="true" size={22} />
       </div>
