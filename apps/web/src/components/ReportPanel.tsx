@@ -9,13 +9,32 @@ interface Props {
 }
 
 export function ReportPanel({ report, adjusted, manualOnly }: Props) {
+  const isChinese = report?.language === "zh-CN";
+  const translated = report?.language === "zh-CN" && report.translation_provider === "deepseek";
+
   return (
     <aside className="report-panel" aria-labelledby="report-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{manualOnly ? "Manual crop" : "Venus 原生输出"}</p>
+          <p className="eyebrow">
+            {manualOnly
+              ? "Manual crop"
+              : translated
+                ? "Venus 分析 · DeepSeek 翻译"
+                : isChinese
+                  ? "AI 示例分析"
+                  : "Venus 原始分析"}
+          </p>
           <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : "美学分析报告"}</h2>
-          {!manualOnly && <p className="report-language-note">报告正文由 Venus 直接生成，目前为英文。</p>}
+          {!manualOnly && translated && (
+            <p className="report-language-note">报告由 Venus 生成，并经 DeepSeek 翻译为简体中文。</p>
+          )}
+          {!manualOnly && isChinese && !translated && (
+            <p className="report-language-note">当前为简体中文报告。</p>
+          )}
+          {!manualOnly && report && !isChinese && (
+            <p className="report-language-note">翻译服务暂不可用，当前显示 Venus 英文原文。</p>
+          )}
         </div>
         <Sparkles aria-hidden="true" size={22} />
       </div>

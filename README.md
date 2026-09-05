@@ -1,6 +1,6 @@
 # SmartCrop
 
-SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端应用：用户上传一张图片，系统异步生成一个最佳裁剪、可下载的原分辨率裁剪图，以及页面内由 Venus 直接生成的英文美学分析。
+SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端应用：用户上传一张图片，系统异步生成一个最佳裁剪、可下载的原分辨率裁剪图，以及页面内的简体中文美学分析。报告先由 Venus 直接生成英文结构化内容，再由 DeepSeek 只翻译报告文本；翻译不可用时保留英文原文，不影响裁剪结果。
 
 本仓库仅用于研究、内部展示和受控演示，不用于发布或商业化。数据集已获得使用授权，但数据、模型权重和用户上传均不进入 Git。
 
@@ -10,6 +10,7 @@ SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端�
 - FastAPI 上传、任务轮询、访问码保护和图片制品接口；
 - SQLite + 文件系统任务存储，最多 5 个排队任务；
 - 独立串行 GPU worker，长驻加载 Venus；
+- 可选的 DeepSeek 结构化报告翻译，不向第三方发送用户图片；
 - 120 秒进程级硬超时，超时后终止并重建模型进程；
 - JPEG / PNG / WebP，单图最大 20 MB、50 MP；
 - AI 裁剪框可拖动、四角缩放及键盘微调；
@@ -57,6 +58,8 @@ Copy-Item .env.example .env
 export SMARTCROP_WORKER_BACKEND=venus
 export SMARTCROP_MODEL_PATH=/absolute/path/to/model
 export SMARTCROP_ACCESS_CODE='replace-with-a-long-random-code'
+export SMARTCROP_REPORT_TRANSLATOR=deepseek
+export SMARTCROP_DEEPSEEK_API_KEY='set-this-privately'
 smartcrop-worker
 ```
 
@@ -75,7 +78,9 @@ pnpm --dir apps/web build
 
 ```powershell
 $env:SMARTCROP_ACCESS_CODE = "your-code"
-.\.venv\Scripts\python.exe scripts/run_regression.py --base-url https://your-host
+.\.venv\Scripts\python.exe scripts/run_regression.py `
+  --base-url https://your-host `
+  --expected-report-language zh-CN
 ```
 
 回归结果写入被忽略的 `var/regression/`。它检查上传、排队、真实模型结果、结构化报告和可解码裁剪制品；模型质量仍需人工复核。

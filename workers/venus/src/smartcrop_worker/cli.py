@@ -8,6 +8,7 @@ from smartcrop_runtime import JobStore, Settings
 
 from .factory import build_backend
 from .supervisor import WorkerSupervisor
+from .translation import build_report_translator
 from .worker import Worker
 
 
@@ -26,7 +27,12 @@ def main() -> None:
     store = JobStore(settings.database_path)
     store.initialize()
     if args.once:
-        Worker(settings, store, build_backend(settings)).run_once()
+        Worker(
+            settings,
+            store,
+            build_backend(settings),
+            build_report_translator(settings),
+        ).run_once()
     else:
         WorkerSupervisor(settings, store).run_forever()
 

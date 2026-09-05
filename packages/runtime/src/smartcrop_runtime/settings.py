@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -25,6 +25,11 @@ class Settings:
     worker_backend: str = "mock"
     model_path: Path | None = None
     load_in_8bit: bool = True
+    report_translator: str = "none"
+    deepseek_api_key: str = field(default="", repr=False)
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_timeout_seconds: float = 12.0
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -48,6 +53,17 @@ class Settings:
             worker_backend=os.getenv("SMARTCROP_WORKER_BACKEND", "mock").strip().lower(),
             model_path=Path(model_value).resolve() if model_value else None,
             load_in_8bit=_as_bool(os.getenv("SMARTCROP_LOAD_IN_8BIT"), True),
+            report_translator=os.getenv("SMARTCROP_REPORT_TRANSLATOR", "none").strip().lower(),
+            deepseek_api_key=os.getenv("SMARTCROP_DEEPSEEK_API_KEY", "").strip(),
+            deepseek_base_url=os.getenv(
+                "SMARTCROP_DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+            ).strip(),
+            deepseek_model=os.getenv(
+                "SMARTCROP_DEEPSEEK_MODEL", "deepseek-v4-flash"
+            ).strip(),
+            deepseek_timeout_seconds=float(
+                os.getenv("SMARTCROP_DEEPSEEK_TIMEOUT_SECONDS", 12)
+            ),
         )
 
     @property

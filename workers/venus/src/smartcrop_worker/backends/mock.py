@@ -41,5 +41,6 @@ class MockBackend:
                 "拍摄时可提前检查画面边缘，避免无关元素进入。",
                 "尝试让主体与主要留白形成更明确的方向关系。",
             ],
+            language="zh-CN",
         )
         return InferenceResult(crop=crop, report=report)

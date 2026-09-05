@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -54,6 +55,8 @@ class Report(BaseModel):
     issues: list[str] = Field(min_length=1, max_length=5)
     crop_rationale: str = Field(min_length=1, max_length=1200)
     shooting_tips: list[str] = Field(min_length=1, max_length=5)
+    language: Literal["en", "zh-CN"] = "en"
+    translation_provider: Literal["deepseek"] | None = None
 
 
 class ErrorDetail(BaseModel):

@@ -67,10 +67,16 @@ SMARTCROP_WEB_DIST=/root/autodl-tmp/SmartCrop/apps/web/dist
 SMARTCROP_WORKER_BACKEND=venus
 SMARTCROP_MODEL_PATH=/root/autodl-tmp/models/Venus-Q-Stage2
 SMARTCROP_LOAD_IN_8BIT=true
+SMARTCROP_REPORT_TRANSLATOR=deepseek
+SMARTCROP_DEEPSEEK_API_KEY=replace-with-your-private-api-key
+SMARTCROP_DEEPSEEK_BASE_URL=https://api.deepseek.com
+SMARTCROP_DEEPSEEK_MODEL=deepseek-v4-flash
+SMARTCROP_DEEPSEEK_TIMEOUT_SECONDS=12
 ```
 
 配置完成后运行 `chmod 600 /root/autodl-tmp/smartcrop.env`。模型、授权数据集和运行数据
-均不提交仓库。
+均不提交仓库。DeepSeek 只接收 Venus 已生成的英文 JSON 报告，不接收用户图片、访问码或
+任务元数据；翻译请求失败时系统保留英文报告，裁剪任务不会因此失败。
 
 ## 启动进程
 
@@ -113,7 +119,8 @@ API 只监听 `127.0.0.1`。使用平台 HTTPS 网关，或用 Caddy/Nginx 把�
 curl -fsS http://127.0.0.1:8000/health/live
 curl -fsS http://127.0.0.1:8000/health/ready
 SMARTCROP_ACCESS_CODE='<code>' python scripts/run_regression.py \
-  --base-url https://your-domain
+  --base-url https://your-domain \
+  --expected-report-language zh-CN
 ```
 
 发布演示前必须完整跑 30 图回归并人工抽查裁剪与报告。Mock 后端只用于本地连通性，不是 GPU 或模型验收证据。

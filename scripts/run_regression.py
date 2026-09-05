@@ -15,6 +15,9 @@ TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 
 
 def report_language(report: dict) -> str:
+    declared = report.get("language")
+    if declared in {"zh-CN", "en"}:
+        return declared
     values = [
         report["overview"],
         *report["strengths"],
@@ -51,6 +54,7 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, default=Path("tests/regression/manifest.json"))
     parser.add_argument("--limit", type=int)
     parser.add_argument("--job-timeout", type=int, default=900)
+    parser.add_argument("--expected-report-language", choices=("zh-CN", "en"))
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
@@ -91,11 +95,17 @@ def main() -> None:
                 artifact.raise_for_status()
                 with Image.open(BytesIO(artifact.content)) as crop:
                     crop.verify()
+                language = report_language(job["report"])
+                if args.expected_report_language and language != args.expected_report_language:
+                    raise RuntimeError(
+                        f"expected report language {args.expected_report_language}, got {language}"
+                    )
                 entry.update(
                     status="passed",
                     duration_seconds=round(time.monotonic() - started, 2),
                     crop=job["final_crop"],
-                    report_language=report_language(job["report"]),
+                    report_language=language,
+                    translation_provider=job["report"].get("translation_provider"),
                 )
             except Exception as exc:  # noqa: BLE001 - every case must be recorded
                 entry.update(

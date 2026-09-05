@@ -19,6 +19,8 @@ export interface AestheticReport {
   issues: string[];
   crop_rationale: string;
   shooting_tips: string[];
+  language: "en" | "zh-CN";
+  translation_provider: "deepseek" | null;
 }
 
 export interface JobResponse {

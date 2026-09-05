@@ -16,6 +16,11 @@ class FailingBackend:
         raise RuntimeError("测试模型故障")
 
 
+class FailingTranslator:
+    def translate(self, _report):
+        raise RuntimeError("测试翻译服务故障")
+
+
 def _settings(tmp_path: Path) -> Settings:
     data = tmp_path / "data"
     return Settings(
@@ -106,3 +111,26 @@ def test_inference_failure_offers_honest_manual_only_crop(
         assert manual.json()["manual_only"] is True
         assert manual.json()["report"] is None
         assert manual.json()["error"]["code"] == "inference_failed"
+
+
+def test_translation_failure_keeps_successful_crop_and_original_report(
+    jpeg_bytes: bytes,
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    app = create_app(settings, serve_web=False)
+
+    with TestClient(app) as client:
+        submitted = _submit(client, jpeg_bytes)
+        store = JobStore(settings.database_path)
+        assert Worker(settings, store, MockBackend(), FailingTranslator()).run_once()
+
+        result = client.get(
+            f"/v1/jobs/{submitted['id']}",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert result.status_code == 200
+        body = result.json()
+        assert body["status"] == JobStatus.SUCCEEDED.value
+        assert body["artifacts"]["crop"]
+        assert body["report"]["overview"]

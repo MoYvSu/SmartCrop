@@ -12,6 +12,7 @@ LOGGER = logging.getLogger("smartcrop.worker.supervisor")
 
 def _worker_child(settings: Settings) -> None:
     from .factory import build_backend
+    from .translation import build_report_translator
     from .worker import Worker
 
     logging.basicConfig(
@@ -20,7 +21,12 @@ def _worker_child(settings: Settings) -> None:
     )
     store = JobStore(settings.database_path)
     store.initialize()
-    Worker(settings, store, build_backend(settings)).run_forever()
+    Worker(
+        settings,
+        store,
+        build_backend(settings),
+        build_report_translator(settings),
+    ).run_forever()
 
 
 class WorkerSupervisor:

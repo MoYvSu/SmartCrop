@@ -9,6 +9,7 @@ from smartcrop_image_core import crop_original
 from smartcrop_runtime import JobRecord, JobStore, Settings
 
 from .backends import InferenceBackend
+from .translation import ReportTranslator
 
 LOGGER = logging.getLogger("smartcrop.worker")
 
@@ -24,10 +25,17 @@ def remove_expired_job_files(records: list[JobRecord], jobs_root: Path) -> None:
 
 
 class Worker:
-    def __init__(self, settings: Settings, store: JobStore, backend: InferenceBackend):
+    def __init__(
+        self,
+        settings: Settings,
+        store: JobStore,
+        backend: InferenceBackend,
+        report_translator: ReportTranslator | None = None,
+    ):
         self.settings = settings
         self.store = store
         self.backend = backend
+        self.report_translator = report_translator
 
     def run_once(self) -> bool:
         self.store.expire_stale_running(self.settings.task_timeout_seconds)
@@ -40,6 +48,16 @@ class Worker:
         started = time.monotonic()
         try:
             result = self.backend.analyze(job.input_path)
+            if self.report_translator is not None:
+                try:
+                    translated_report = self.report_translator.translate(result.report)
+                    result = type(result)(crop=result.crop, report=translated_report)
+                except Exception as exc:  # noqa: BLE001 - translation must fail open
+                    LOGGER.warning(
+                        "Report translation failed for job %s; preserving English report (%s)",
+                        job.id,
+                        type(exc).__name__,
+                    )
             elapsed = time.monotonic() - started
             if elapsed > self.settings.task_timeout_seconds:
                 raise TimeoutError("模型推理超过允许时间")
@@ -70,7 +88,14 @@ class Worker:
         return True
 
     def run_forever(self) -> None:
-        LOGGER.info("SmartCrop worker started with %s backend", type(self.backend).__name__)
+        translation_name = (
+            type(self.report_translator).__name__ if self.report_translator else "disabled"
+        )
+        LOGGER.info(
+            "SmartCrop worker started with %s backend; report translation=%s",
+            type(self.backend).__name__,
+            translation_name,
+        )
         while True:
             processed = self.run_once()
             if not processed:
