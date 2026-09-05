@@ -5,6 +5,7 @@ import shutil
 import time
 from pathlib import Path
 
+from smartcrop_contracts import JobMode
 from smartcrop_image_core import crop_original
 from smartcrop_runtime import JobRecord, JobStore, Settings
 
@@ -47,11 +48,30 @@ class Worker:
         LOGGER.info("Processing job %s", job.id)
         started = time.monotonic()
         try:
-            result = self.backend.analyze(job.input_path)
+            if job.mode == JobMode.REVIEW:
+                report = self.backend.review(job.input_path, job.intent)
+                if self.report_translator is not None:
+                    try:
+                        report = self.report_translator.translate(report)
+                    except Exception as exc:  # noqa: BLE001 - translation must fail open
+                        LOGGER.warning(
+                            "Review translation failed for job %s (%s)",
+                            job.id,
+                            type(exc).__name__,
+                        )
+                if time.monotonic() - started > self.settings.task_timeout_seconds:
+                    raise TimeoutError("模型推理超过允许时间")
+                self.store.complete_review_job(job.id, report=report)
+                return True
+
+            result = self.backend.analyze(job.input_path, job.intent)
             if self.report_translator is not None:
                 try:
                     translated_report = self.report_translator.translate(result.report)
-                    result = type(result)(crop=result.crop, report=translated_report)
+                    result = type(result)(
+                        candidates=result.candidates,
+                        report=translated_report,
+                    )
                 except Exception as exc:  # noqa: BLE001 - translation must fail open
                     LOGGER.warning(
                         "Report translation failed for job %s; preserving English report (%s)",
@@ -67,7 +87,7 @@ class Worker:
             committed = self.store.complete_job(
                 job.id,
                 report=result.report,
-                ai_crop=result.crop,
+                candidates=result.candidates,
                 crop_path=crop_path,
             )
             if committed:

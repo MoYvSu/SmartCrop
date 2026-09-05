@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from smartcrop_contracts import CropBox, JobStatus, Report
+from smartcrop_contracts import CropBox, CropCandidate, JobStatus, Report
 from smartcrop_runtime import JobStore
 
 
@@ -44,7 +44,12 @@ def test_late_result_cannot_overwrite_failure(tmp_path: Path) -> None:
     committed = store.complete_job(
         "job-1",
         report=_report(),
-        ai_crop=CropBox(x=0.1, y=0.1, width=0.8, height=0.8),
+        candidates=[
+            CropCandidate(
+                id="balanced",
+                crop=CropBox(x=0.1, y=0.1, width=0.8, height=0.8),
+            )
+        ],
         crop_path=tmp_path / "job-1" / "crop.jpg",
     )
 

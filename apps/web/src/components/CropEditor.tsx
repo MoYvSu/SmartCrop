@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
-import { clamp, MIN_CROP_SIZE, moveCrop } from "../lib/crop";
+import { clamp, fitCropToAspect, MIN_CROP_SIZE, moveCrop } from "../lib/crop";
 import type { CropBox } from "../types";
 
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
@@ -19,6 +19,7 @@ interface Props {
   imageUrl: string;
   crop: CropBox;
   onChange: (crop: CropBox) => void;
+  aspectRatio?: number | null;
 }
 
 const handleLabels: Record<Exclude<Handle, "move">, string> = {
@@ -44,7 +45,7 @@ function resizeCrop(start: CropBox, handle: Handle, dx: number, dy: number): Cro
   return { x, y, width: nextRight - x, height: nextBottom - y };
 }
 
-export function CropEditor({ imageUrl, crop, onChange }: Props) {
+export function CropEditor({ imageUrl, crop, onChange, aspectRatio = null }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
 
@@ -71,7 +72,7 @@ export function CropEditor({ imageUrl, crop, onChange }: Props) {
     const move = (event: PointerEvent) => {
       const dx = (event.clientX - interaction.pointerX) / interaction.width;
       const dy = (event.clientY - interaction.pointerY) / interaction.height;
-      onChange(resizeCrop(interaction.crop, interaction.handle, dx, dy));
+      onChange(fitCropToAspect(resizeCrop(interaction.crop, interaction.handle, dx, dy), aspectRatio));
     };
     const stop = () => setInteraction(null);
     window.addEventListener("pointermove", move);
@@ -82,7 +83,7 @@ export function CropEditor({ imageUrl, crop, onChange }: Props) {
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
     };
-  }, [interaction, onChange]);
+  }, [aspectRatio, interaction, onChange]);
 
   const keyboardDelta = (event: ReactKeyboardEvent): [number, number] | null => {
     const amount = event.shiftKey ? 0.05 : 0.01;
@@ -106,7 +107,7 @@ export function CropEditor({ imageUrl, crop, onChange }: Props) {
     if (!delta) return;
     event.preventDefault();
     event.stopPropagation();
-    onChange(resizeCrop(crop, handle, delta[0], delta[1]));
+    onChange(fitCropToAspect(resizeCrop(crop, handle, delta[0], delta[1]), aspectRatio));
   };
 
   return (

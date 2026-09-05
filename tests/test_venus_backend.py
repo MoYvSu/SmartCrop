@@ -1,5 +1,7 @@
 import pytest
+from smartcrop_contracts import AnalysisIntent, AspectRatio, SceneType
 from smartcrop_worker.backends.venus import (
+    _build_crop_prompt,
     _build_direct_report_prompt,
     _extract_crop_box,
     _normalize_report_payload,
@@ -52,3 +54,14 @@ def test_direct_report_prompt_uses_image_task_without_raw_analysis() -> None:
     assert "Write every value in English" in prompt
     assert "[100, 200, 800, 900]" in prompt
     assert "original analysis" not in prompt.lower()
+
+
+def test_crop_prompt_carries_scene_ratio_and_strategy() -> None:
+    prompt = _build_crop_prompt(
+        AnalysisIntent(scene=SceneType.PORTRAIT, aspect_ratio=AspectRatio.PORTRAIT_4_5),
+        "subject",
+    )
+
+    assert "portrait photography" in prompt
+    assert "4:5" in prompt
+    assert "emphasizes the main subject" in prompt

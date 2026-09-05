@@ -16,6 +16,34 @@ class JobStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class JobMode(str, Enum):
+    CROP = "crop"
+    REVIEW = "review"
+
+
+class SceneType(str, Enum):
+    GENERAL = "general"
+    PORTRAIT = "portrait"
+    LANDSCAPE = "landscape"
+    PRODUCT = "product"
+    SOCIAL = "social"
+
+
+class AspectRatio(str, Enum):
+    FREE = "free"
+    SQUARE = "1:1"
+    PORTRAIT_4_5 = "4:5"
+    PORTRAIT_3_4 = "3:4"
+    LANDSCAPE_16_9 = "16:9"
+
+
+class AnalysisIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene: SceneType = SceneType.GENERAL
+    aspect_ratio: AspectRatio = AspectRatio.FREE
+
+
 class CropBox(BaseModel):
     """A normalized crop box. Every coordinate is relative to the oriented source image."""
 
@@ -59,6 +87,13 @@ class Report(BaseModel):
     translation_provider: Literal["deepseek"] | None = None
 
 
+class CropCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Literal["balanced", "subject", "story"]
+    crop: CropBox
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
@@ -67,6 +102,7 @@ class ErrorDetail(BaseModel):
 class ArtifactLinks(BaseModel):
     preview: str | None = None
     crop: str | None = None
+    plan: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -78,6 +114,12 @@ class JobResponse(BaseModel):
     expires_at: datetime
     image_width: int
     image_height: int
+    mode: JobMode = JobMode.CROP
+    parent_job_id: str | None = None
+    intent: AnalysisIntent = Field(default_factory=AnalysisIntent)
+    candidates: list[CropCandidate] = Field(default_factory=list, max_length=3)
+    selected_candidate_id: Literal["balanced", "subject", "story"] | None = None
+    capability_status: Literal["mock", "unverified", "verified"] = "unverified"
     ai_crop: CropBox | None = None
     final_crop: CropBox | None = None
     manual_adjusted: bool = False
@@ -91,3 +133,4 @@ class CropRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     crop: CropBox
+    candidate_id: Literal["balanced", "subject", "story"] | None = None

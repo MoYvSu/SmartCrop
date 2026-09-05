@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from PIL import Image, ImageStat
-from smartcrop_contracts import CropBox, Report
+from smartcrop_contracts import AnalysisIntent, CropBox, CropCandidate, Report
 
-from .base import InferenceResult
+from .base import InferenceResult, fit_crop_to_aspect
 
 
 class MockBackend:
     """Deterministic local backend for contract, UI, and deployment smoke tests."""
 
-    def analyze(self, image_path: Path) -> InferenceResult:
+    def analyze(self, image_path: Path, intent: AnalysisIntent) -> InferenceResult:
         with Image.open(image_path) as opened:
             opened.load()
             image = opened.convert("RGB")
@@ -26,6 +26,18 @@ class MockBackend:
             crop = CropBox(x=0.10, y=0.06, width=0.80, height=0.88)
 
         light_description = "明快" if brightness >= 145 else "沉静"
+        candidate_boxes = [
+            ("balanced", crop),
+            ("subject", CropBox(x=0.14, y=0.14, width=0.72, height=0.72)),
+            ("story", CropBox(x=0.03, y=0.05, width=0.94, height=0.90)),
+        ]
+        candidates = [
+            CropCandidate(
+                id=candidate_id,
+                crop=fit_crop_to_aspect(box, intent.aspect_ratio.value, width, height),
+            )
+            for candidate_id, box in candidate_boxes
+        ]
         report = Report(
             overview=f"这是一张{orientation}画面，整体光调{light_description}，主体关系清楚。",
             strengths=[
@@ -43,4 +55,16 @@ class MockBackend:
             ],
             language="zh-CN",
         )
-        return InferenceResult(crop=crop, report=report)
+        return InferenceResult(candidates=candidates, report=report)
+
+    def review(self, image_path: Path, intent: AnalysisIntent) -> Report:
+        with Image.open(image_path) as opened:
+            width, height = opened.size
+        return Report(
+            overview=f"终稿为 {width}×{height} 像素，已按所选比例形成完整画面。",
+            strengths=["主体与画面边界的关系更明确。", "成片比例与发布目标一致。"],
+            issues=["这是 Mock 复评结果，不能替代真实 Venus 能力验收。"],
+            crop_rationale="终稿已作为一张独立图片重新进入分析队列。",
+            shooting_tips=["在真实 GPU 环境中复核建议稳定性后再用于最终展示。"],
+            language="zh-CN",
+        )

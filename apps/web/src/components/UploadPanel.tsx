@@ -1,10 +1,11 @@
 import { FileImage, LockKeyhole, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { AnalysisIntent, AspectRatio, SceneType } from "../types";
 
 interface Props {
   accessCode: string;
   onAccessCodeChange: (value: string) => void;
-  onSubmit: (file: File) => Promise<void>;
+  onSubmit: (file: File, intent: AnalysisIntent) => Promise<void>;
   busy: boolean;
 }
 
@@ -17,6 +18,8 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [scene, setScene] = useState<SceneType>("general");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("free");
 
   useEffect(() => {
     if (!file) {
@@ -43,15 +46,15 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
   };
 
   return (
-    <main className="upload-shell">
+    <main className="upload-shell" id="main-content">
       <section className="intro-panel">
         <p className="eyebrow">AI aesthetic cropping</p>
         <h1>把注意力留给画面本身</h1>
         <p className="intro-copy">
-          上传一张照片，Venus 会分析构图关系并给出裁剪建议，报告经 DeepSeek 转为简体中文。
+          先说明用途和成片比例，再从三种构图策略中选择、微调并复评终稿。
         </p>
         <dl className="intro-facts">
-          <div><dt>输出</dt><dd>一张最佳裁剪 + 中文美学分析</dd></div>
+          <div><dt>输出</dt><dd>三种构图策略 + 可编辑终稿 + 方案文件</dd></div>
           <div><dt>隐私</dt><dd>任务文件将在 1 小时后清理</dd></div>
           <div><dt>格式</dt><dd>JPEG、PNG、WebP，最大 20 MB</dd></div>
         </dl>
@@ -109,6 +112,28 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
           </button>
         )}
 
+        <fieldset className="intent-fieldset">
+          <legend>成片意图</legend>
+          <label>使用场景
+            <select value={scene} onChange={(event) => setScene(event.target.value as SceneType)}>
+              <option value="general">通用构图</option>
+              <option value="portrait">人像</option>
+              <option value="landscape">风光</option>
+              <option value="product">产品</option>
+              <option value="social">社交媒体</option>
+            </select>
+          </label>
+          <label>成片比例
+            <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
+              <option value="free">自由比例</option>
+              <option value="1:1">1:1 方形</option>
+              <option value="4:5">4:5 竖图</option>
+              <option value="3:4">3:4 竖图</option>
+              <option value="16:9">16:9 横图</option>
+            </select>
+          </label>
+        </fieldset>
+
         <label className="access-field">
           <span><LockKeyhole aria-hidden="true" size={16} />演示访问码</span>
           <input
@@ -125,7 +150,7 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
           type="button"
           className="primary-button"
           disabled={!file || busy}
-          onClick={() => file && onSubmit(file)}
+          onClick={() => file && onSubmit(file, { scene, aspect_ratio: aspectRatio })}
         >
           <ScanIcon />
           {busy ? "正在提交" : "开始美学分析"}

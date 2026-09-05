@@ -1,10 +1,10 @@
 # SmartCrop
 
-SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端应用：用户上传一张图片，系统异步生成一个最佳裁剪、可下载的原分辨率裁剪图，以及页面内的简体中文美学分析。报告先由 Venus 直接生成英文结构化内容，再由 DeepSeek 只翻译报告文本；翻译不可用时保留英文原文，不影响裁剪结果。
+SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端应用：用户上传一张图片并选择场景与成片比例，系统异步生成三种构图策略、可编辑的原分辨率裁剪图、结构化美学报告和可下载方案。终稿可作为独立图片进入同一队列复评。报告可由 DeepSeek 只翻译文本；翻译不可用时保留英文原文，不影响裁剪结果。
 
 本仓库仅用于研究、内部展示和受控演示，不用于发布或商业化。数据集已获得使用授权，但数据、模型权重和用户上传均不进入 Git。
 
-## V1 已实现
+## P0 已实现
 
 - React + TypeScript + Vite 桌面工作台，手机端明确提示暂不支持；
 - FastAPI 上传、任务轮询、访问码保护和图片制品接口；
@@ -14,12 +14,14 @@ SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端�
 - 120 秒进程级硬超时，超时后终止并重建模型进程；
 - JPEG / PNG / WebP，单图最大 20 MB、50 MP；
 - AI 裁剪框可拖动、四角缩放及键盘微调；
+- 场景与成片比例意图、三种策略候选及裁剪比例锁定；
+- 终稿独立复评任务，以及包含初始/终稿报告的 JSON 方案导出；
 - 最终裁剪由服务器基于规范化原图生成；
 - AI 失败时可进入明确标注的纯手动模式，不伪造报告；
-- 任务与图片 1 小时后清理，无历史页、无报告下载；
+- 任务与图片 1 小时后清理，无历史页；
 - 固定 30 图部署回归清单。
 
-产品范围见 [V1 决策简报](docs/product/v1-decision-brief.md)，进程边界见 [ADR-0001](docs/decisions/0001-process-boundaries.md)。
+产品范围见 [P0 构图工作流](docs/product/p0-composition-workflow.md)，进程边界见 [ADR-0001](docs/decisions/0001-process-boundaries.md)，能力门禁见 [ADR-0005](docs/decisions/0005-p0-review-job-and-capability-gate.md)。
 
 ## 仓库结构
 
@@ -60,6 +62,8 @@ export SMARTCROP_MODEL_PATH=/absolute/path/to/model
 export SMARTCROP_ACCESS_CODE='replace-with-a-long-random-code'
 export SMARTCROP_REPORT_TRANSLATOR=deepseek
 export SMARTCROP_DEEPSEEK_API_KEY='set-this-privately'
+# 真实 P0 验收通过前保持 false
+export SMARTCROP_P0_CAPABILITIES_VERIFIED=false
 smartcrop-worker
 ```
 

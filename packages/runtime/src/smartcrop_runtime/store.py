@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -7,7 +8,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from smartcrop_contracts import CropBox, JobStatus, Report
+from smartcrop_contracts import (
+    AnalysisIntent,
+    CropBox,
+    CropCandidate,
+    JobMode,
+    JobStatus,
+    Report,
+)
 
 
 def utc_now() -> datetime:
@@ -32,6 +40,11 @@ class JobRecord:
     source_format: str
     image_width: int
     image_height: int
+    mode: JobMode
+    parent_job_id: str | None
+    intent: AnalysisIntent
+    candidates: list[CropCandidate]
+    selected_candidate_id: str | None
     ai_crop: CropBox | None
     final_crop: CropBox | None
     report: Report | None
@@ -79,6 +92,11 @@ class JobStore:
                     source_format TEXT NOT NULL,
                     image_width INTEGER NOT NULL,
                     image_height INTEGER NOT NULL,
+                    mode TEXT NOT NULL DEFAULT 'crop',
+                    parent_job_id TEXT,
+                    intent_json TEXT,
+                    candidates_json TEXT,
+                    selected_candidate_id TEXT,
                     ai_crop_json TEXT,
                     final_crop_json TEXT,
                     report_json TEXT,
@@ -106,6 +124,16 @@ class JobStore:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN manual_only INTEGER NOT NULL DEFAULT 0"
                 )
+            migrations = {
+                "mode": "ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'crop'",
+                "parent_job_id": "ALTER TABLE jobs ADD COLUMN parent_job_id TEXT",
+                "intent_json": "ALTER TABLE jobs ADD COLUMN intent_json TEXT",
+                "candidates_json": "ALTER TABLE jobs ADD COLUMN candidates_json TEXT",
+                "selected_candidate_id": "ALTER TABLE jobs ADD COLUMN selected_candidate_id TEXT",
+            }
+            for column, statement in migrations.items():
+                if column not in columns:
+                    connection.execute(statement)
 
     def create_job(
         self,
@@ -117,6 +145,9 @@ class JobStore:
         image_width: int,
         image_height: int,
         retention_seconds: int,
+        intent: AnalysisIntent | None = None,
+        mode: JobMode = JobMode.CROP,
+        parent_job_id: str | None = None,
     ) -> JobRecord:
         now = utc_now()
         expires_at = now + timedelta(seconds=retention_seconds)
@@ -125,8 +156,9 @@ class JobStore:
                 """
                 INSERT INTO jobs (
                     id, status, input_path, preview_path, source_format,
-                    image_width, image_height, created_at, updated_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    image_width, image_height, mode, parent_job_id, intent_json,
+                    created_at, updated_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -136,6 +168,9 @@ class JobStore:
                     source_format,
                     image_width,
                     image_height,
+                    mode.value,
+                    parent_job_id,
+                    (intent or AnalysisIntent()).model_dump_json(),
                     to_iso(now),
                     to_iso(now),
                     to_iso(expires_at),
@@ -224,15 +259,18 @@ class JobStore:
         job_id: str,
         *,
         report: Report,
-        ai_crop: CropBox,
+        candidates: list[CropCandidate],
         crop_path: Path,
     ) -> bool:
+        if not candidates:
+            raise ValueError("a crop job requires at least one candidate")
         now = utc_now()
         with self._connect() as connection:
             result = connection.execute(
                 """
                 UPDATE jobs SET
                     status = ?, report_json = ?, ai_crop_json = ?, final_crop_json = ?,
+                    candidates_json = ?, selected_candidate_id = ?,
                     crop_path = ?, manual_adjusted = 0, completed_at = ?, updated_at = ?,
                     error_code = NULL, error_message = NULL, manual_only = 0
                 WHERE id = ? AND status = ?
@@ -240,13 +278,36 @@ class JobStore:
                 (
                     JobStatus.SUCCEEDED.value,
                     report.model_dump_json(),
-                    ai_crop.model_dump_json(),
-                    ai_crop.model_dump_json(),
+                    candidates[0].crop.model_dump_json(),
+                    candidates[0].crop.model_dump_json(),
+                    json.dumps([candidate.model_dump(mode="json") for candidate in candidates]),
+                    candidates[0].id,
                     str(crop_path),
                     to_iso(now),
                     to_iso(now),
                     job_id,
                     JobStatus.RUNNING.value,
+                ),
+            )
+        return result.rowcount == 1
+
+    def complete_review_job(self, job_id: str, *, report: Report) -> bool:
+        now = utc_now()
+        with self._connect() as connection:
+            result = connection.execute(
+                """
+                UPDATE jobs SET status = ?, report_json = ?, completed_at = ?, updated_at = ?,
+                    error_code = NULL, error_message = NULL
+                WHERE id = ? AND status = ? AND mode = ?
+                """,
+                (
+                    JobStatus.SUCCEEDED.value,
+                    report.model_dump_json(),
+                    to_iso(now),
+                    to_iso(now),
+                    job_id,
+                    JobStatus.RUNNING.value,
+                    JobMode.REVIEW.value,
                 ),
             )
         return result.rowcount == 1
@@ -273,13 +334,19 @@ class JobStore:
             )
         return result.rowcount == 1
 
-    def update_manual_crop(self, job_id: str, crop: CropBox, crop_path: Path) -> bool:
+    def update_manual_crop(
+        self,
+        job_id: str,
+        crop: CropBox,
+        crop_path: Path,
+        candidate_id: str | None = None,
+    ) -> bool:
         now = utc_now()
         with self._connect() as connection:
             result = connection.execute(
                 """
                 UPDATE jobs SET status = ?, final_crop_json = ?, crop_path = ?,
-                    manual_adjusted = 1,
+                    manual_adjusted = 1, selected_candidate_id = ?,
                     manual_only = CASE WHEN report_json IS NULL THEN 1 ELSE manual_only END,
                     completed_at = COALESCE(completed_at, ?), updated_at = ?
                 WHERE id = ? AND status IN (?, ?)
@@ -288,6 +355,7 @@ class JobStore:
                     JobStatus.SUCCEEDED.value,
                     crop.model_dump_json(),
                     str(crop_path),
+                    candidate_id,
                     to_iso(now),
                     to_iso(now),
                     job_id,
@@ -342,6 +410,15 @@ class JobStore:
             else None
         )
         report = Report.model_validate_json(row["report_json"]) if row["report_json"] else None
+        intent = (
+            AnalysisIntent.model_validate_json(row["intent_json"])
+            if row["intent_json"]
+            else AnalysisIntent()
+        )
+        candidates = [
+            CropCandidate.model_validate(candidate)
+            for candidate in json.loads(row["candidates_json"] or "[]")
+        ]
         return JobRecord(
             id=row["id"],
             status=JobStatus(row["status"]),
@@ -351,6 +428,11 @@ class JobStore:
             source_format=row["source_format"],
             image_width=int(row["image_width"]),
             image_height=int(row["image_height"]),
+            mode=JobMode(row["mode"]),
+            parent_job_id=row["parent_job_id"],
+            intent=intent,
+            candidates=candidates,
+            selected_candidate_id=row["selected_candidate_id"],
             ai_crop=ai_crop,
             final_crop=final_crop,
             report=report,

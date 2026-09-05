@@ -1,4 +1,4 @@
-import type { CropBox, JobResponse } from "./types";
+import type { AnalysisIntent, CropBox, JobResponse } from "./types";
 
 const ACCESS_HEADER = "X-SmartCrop-Access";
 
@@ -32,9 +32,15 @@ async function expectJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function createJob(file: File, accessCode: string): Promise<JobResponse> {
+export async function createJob(
+  file: File,
+  intent: AnalysisIntent,
+  accessCode: string,
+): Promise<JobResponse> {
   const form = new FormData();
   form.append("file", file, file.name);
+  form.append("scene", intent.scene);
+  form.append("aspect_ratio", intent.aspect_ratio);
   return expectJson<JobResponse>(
     await fetch("/v1/jobs", {
       method: "POST",
@@ -54,12 +60,22 @@ export async function updateCrop(
   jobId: string,
   crop: CropBox,
   accessCode: string,
+  candidateId?: string,
 ): Promise<JobResponse> {
   return expectJson<JobResponse>(
     await fetch(`/v1/jobs/${jobId}/crop`, {
       method: "POST",
       headers: headers(accessCode, true),
-      body: JSON.stringify({ crop }),
+      body: JSON.stringify({ crop, candidate_id: candidateId || null }),
+    }),
+  );
+}
+
+export async function createReview(jobId: string, accessCode: string): Promise<JobResponse> {
+  return expectJson<JobResponse>(
+    await fetch(`/v1/jobs/${jobId}/review`, {
+      method: "POST",
+      headers: headers(accessCode),
     }),
   );
 }
@@ -72,7 +88,7 @@ export async function downloadArtifact(
   const response = await fetch(path, { headers: headers(accessCode) });
   if (!response.ok) throw new ApiError(response.status, await readError(response));
   const blob = await response.blob();
-  const extension = blob.type === "image/png" ? "png" : "jpg";
+  const extension = blob.type.includes("json") ? "json" : blob.type === "image/png" ? "png" : "jpg";
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

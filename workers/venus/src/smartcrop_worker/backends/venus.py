@@ -6,9 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from smartcrop_contracts import CropBox, Report
+from PIL import Image
+from smartcrop_contracts import AnalysisIntent, CropBox, CropCandidate, Report
 
-from .base import InferenceResult
+from .base import InferenceResult, fit_crop_to_aspect
 
 LOGGER = logging.getLogger("smartcrop.worker.venus")
 MAX_GENERATION_ATTEMPTS = 2
@@ -18,10 +19,33 @@ REPORT_MAX_NEW_TOKENS = 384
 # Venus is trained and evaluated primarily with English instructions. Keep both
 # product tasks direct and in English so the model is never asked to translate or
 # restructure an earlier free-form response.
-CROP_PROMPT = (
-    "Please provide the bounding box coordinate of the most visually balanced and "
-    "aesthetically pleasing composition area. Return only two corner coordinates."
-)
+CROP_STRATEGIES = {
+    "balanced": "a visually balanced composition with clear hierarchy",
+    "subject": "a tighter composition that emphasizes the main subject",
+    "story": "a wider composition that preserves useful environmental context",
+}
+
+SCENE_LABELS = {
+    "general": "general photography",
+    "portrait": "portrait photography",
+    "landscape": "landscape photography",
+    "product": "product photography",
+    "social": "social-media publishing",
+}
+
+
+def _build_crop_prompt(intent: AnalysisIntent, strategy: str) -> str:
+    ratio = (
+        "a free aspect ratio"
+        if intent.aspect_ratio.value == "free"
+        else intent.aspect_ratio.value
+    )
+    return (
+        "Please provide the bounding box coordinate for "
+        f"{CROP_STRATEGIES[strategy]}. The intended use is "
+        f"{SCENE_LABELS[intent.scene.value]} and the requested output uses {ratio}. "
+        "Return only two corner coordinates."
+    )
 
 PLACEHOLDER_TEXT = {
     "overview",
@@ -190,6 +214,22 @@ the JSON values.
 """.strip()
 
 
+def _build_review_prompt(intent: AnalysisIntent) -> str:
+    return f"""
+Analyze this final cropped image directly as a professional photography critic.
+The intended use is {SCENE_LABELS[intent.scene.value]} and the requested aspect
+ratio is {intent.aspect_ratio.value}.
+
+Return exactly one valid JSON object and no Markdown or extra text. The object must
+contain exactly these fields: "overview", "strengths", "issues",
+"crop_rationale", and "shooting_tips". Use one concise sentence for overview and
+crop_rationale, and arrays of 1 to 3 concise items for the other fields. Treat
+crop_rationale as an assessment of the final composition, not a new crop request.
+Write every value in English. Base every observation on the visible image. Do not
+include scores, placeholders, empty values, or coordinates.
+""".strip()
+
+
 class VenusBackend:
     def __init__(self, model_path: Path, load_in_8bit: bool = True):
         if not model_path.exists():
@@ -234,10 +274,10 @@ class VenusBackend:
             raise ValueError("模型返回了空响应")
         return response_text
 
-    def _generate_crop(self, image_path: Path) -> CropBox:
+    def _generate_crop(self, image_path: Path, prompt: str) -> CropBox:
         last_error: ValueError | None = None
         for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
-            response = self._chat(CROP_PROMPT, CROP_MAX_NEW_TOKENS, image_path)
+            response = self._chat(prompt, CROP_MAX_NEW_TOKENS, image_path)
             try:
                 return _extract_crop_box(response)
             except ValueError as exc:
@@ -279,7 +319,38 @@ class VenusBackend:
                 )
         raise ValueError("模型连续返回了无效的结构化报告") from last_error
 
-    def analyze(self, image_path: Path) -> InferenceResult:
-        crop = self._generate_crop(image_path)
-        report = self._generate_report(image_path, crop)
-        return InferenceResult(crop=crop, report=report)
+    def _generate_review(self, image_path: Path, intent: AnalysisIntent) -> Report:
+        last_error: ValueError | None = None
+        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+            response = self._chat(_build_review_prompt(intent), REPORT_MAX_NEW_TOKENS, image_path)
+            try:
+                return Report.model_validate(
+                    _normalize_report_payload(_extract_json_object(response))
+                )
+            except ValueError as exc:
+                last_error = exc
+                LOGGER.warning("Rejected Venus review on attempt %d: %s", attempt, exc)
+        raise ValueError("模型连续返回了无效的终稿复评") from last_error
+
+    def analyze(self, image_path: Path, intent: AnalysisIntent) -> InferenceResult:
+        with Image.open(image_path) as image:
+            width, height = image.size
+        candidates = []
+        for strategy in CROP_STRATEGIES:
+            crop = self._generate_crop(image_path, _build_crop_prompt(intent, strategy))
+            candidates.append(
+                CropCandidate(
+                    id=strategy,
+                    crop=fit_crop_to_aspect(
+                        crop,
+                        intent.aspect_ratio.value,
+                        width,
+                        height,
+                    ),
+                )
+            )
+        report = self._generate_report(image_path, candidates[0].crop)
+        return InferenceResult(candidates=candidates, report=report)
+
+    def review(self, image_path: Path, intent: AnalysisIntent) -> Report:
+        return self._generate_review(image_path, intent)

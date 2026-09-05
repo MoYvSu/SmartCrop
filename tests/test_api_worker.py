@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from smartcrop_api import create_app
@@ -12,7 +13,10 @@ from smartcrop_worker.backends import MockBackend
 
 
 class FailingBackend:
-    def analyze(self, _image_path: Path):
+    def analyze(self, _image_path: Path, _intent):
+        raise RuntimeError("测试模型故障")
+
+    def review(self, _image_path: Path, _intent):
         raise RuntimeError("测试模型故障")
 
 
@@ -32,11 +36,12 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def _submit(client: TestClient, jpeg_bytes: bytes) -> dict:
+def _submit(client: TestClient, jpeg_bytes: bytes, *, aspect_ratio: str = "free") -> dict:
     response = client.post(
         "/v1/jobs",
         headers={"X-SmartCrop-Access": "demo-code"},
         files={"file": ("sample.jpg", jpeg_bytes, "image/jpeg")},
+        data={"scene": "portrait", "aspect_ratio": aspect_ratio},
     )
     assert response.status_code == 202
     return response.json()
@@ -53,7 +58,7 @@ def test_authenticated_job_runs_and_returns_original_resolution_crop(
         unauthorized = client.get("/v1/config")
         assert unauthorized.status_code == 401
 
-        submitted = _submit(client, jpeg_bytes)
+        submitted = _submit(client, jpeg_bytes, aspect_ratio="4:5")
         store = JobStore(settings.database_path)
         assert Worker(settings, store, MockBackend()).run_once()
 
@@ -65,6 +70,16 @@ def test_authenticated_job_runs_and_returns_original_resolution_crop(
         body = result.json()
         assert body["status"] == JobStatus.SUCCEEDED.value
         assert body["report"]["overview"]
+        assert body["intent"] == {"scene": "portrait", "aspect_ratio": "4:5"}
+        assert [candidate["id"] for candidate in body["candidates"]] == [
+            "balanced",
+            "subject",
+            "story",
+        ]
+        for candidate in body["candidates"]:
+            crop = candidate["crop"]
+            assert crop["width"] * 800 / (crop["height"] * 600) == pytest.approx(0.8)
+        assert body["capability_status"] == "mock"
 
         changed = client.post(
             f"/v1/jobs/{submitted['id']}/crop",
@@ -82,6 +97,33 @@ def test_authenticated_job_runs_and_returns_original_resolution_crop(
         crop_path = settings.jobs_dir / submitted["id"] / "crop.jpg"
         with Image.open(crop_path) as crop:
             assert crop.size == (400, 300)
+
+        review = client.post(
+            f"/v1/jobs/{submitted['id']}/review",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert review.status_code == 202
+        assert Worker(settings, store, MockBackend()).run_once()
+        reviewed = client.get(
+            f"/v1/jobs/{review.json()['id']}",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        ).json()
+        assert reviewed["mode"] == "review"
+        assert reviewed["parent_job_id"] == submitted["id"]
+        assert reviewed["report"]["overview"].startswith("终稿为")
+        rejected_review_crop = client.post(
+            f"/v1/jobs/{reviewed['id']}/crop",
+            headers={"X-SmartCrop-Access": "demo-code"},
+            json={"crop": {"x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8}},
+        )
+        assert rejected_review_crop.status_code == 409
+
+        plan = client.get(
+            body["artifacts"]["plan"],
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert plan.status_code == 200
+        assert plan.json()["intent"]["aspect_ratio"] == "4:5"
 
 
 def test_inference_failure_offers_honest_manual_only_crop(

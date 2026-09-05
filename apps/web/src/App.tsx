@@ -1,14 +1,15 @@
-import { Download, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { BrainCircuit, Download, FileJson, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
+import { ApiError, createJob, createReview, downloadArtifact, getJob, updateCrop } from "./api";
+import { CandidatePanel } from "./components/CandidatePanel";
 import { CropEditor } from "./components/CropEditor";
 import { CropPreview } from "./components/CropPreview";
 import { ProcessingPanel } from "./components/ProcessingPanel";
 import { ReportPanel } from "./components/ReportPanel";
 import { UploadPanel } from "./components/UploadPanel";
-import { cropEquals } from "./lib/crop";
-import type { CropBox, JobResponse } from "./types";
+import { cropEquals, normalizedAspectRatio } from "./lib/crop";
+import type { AnalysisIntent, CropBox, CropCandidate, JobResponse } from "./types";
 
 const TERMINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const DEFAULT_MANUAL_CROP: CropBox = { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
@@ -22,6 +23,7 @@ export default function App() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [job, setJob] = useState<JobResponse | null>(null);
   const [draftCrop, setDraftCrop] = useState<CropBox | null>(null);
+  const [reviewJob, setReviewJob] = useState<JobResponse | null>(null);
   const [phase, setPhase] = useState<"upload" | "processing" | "result">("upload");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,19 +43,20 @@ export default function App() {
     setSourceUrl("");
     setJob(null);
     setDraftCrop(null);
+    setReviewJob(null);
     setError("");
     setBusy(false);
     setPhase("upload");
   };
 
-  const analyze = async (file: File) => {
+  const analyze = async (file: File, intent: AnalysisIntent) => {
     setBusy(true);
     setError("");
     const token = ++pollToken.current;
     const localUrl = URL.createObjectURL(file);
     setSourceUrl(localUrl);
     try {
-      let current = await createJob(file, accessCode);
+      let current = await createJob(file, intent, accessCode);
       setJob(current);
       setPhase("processing");
       while (!TERMINAL.has(current.status)) {
@@ -90,13 +93,43 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      const updated = await updateCrop(job.id, draftCrop, accessCode);
+      const selected = job.candidates.find((candidate) => cropEquals(candidate.crop, draftCrop));
+      const updated = await updateCrop(job.id, draftCrop, accessCode, selected?.id);
       setJob(updated);
       setDraftCrop(updated.final_crop);
       return updated;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存裁剪失败");
       return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reviewFinal = async () => {
+    if (!job) return;
+    setBusy(true);
+    setError("");
+    const token = ++pollToken.current;
+    try {
+      let current = job;
+      if (cropDirty) {
+        const updated = await saveCrop();
+        if (!updated) return;
+        current = updated;
+        setBusy(true);
+      }
+      let review = await createReview(current.id, accessCode);
+      setReviewJob(review);
+      while (!TERMINAL.has(review.status)) {
+        await sleep(1500);
+        if (token !== pollToken.current) return;
+        review = await getJob(review.id, accessCode);
+        setReviewJob(review);
+      }
+      if (review.status !== "succeeded") throw new Error(review.error?.message || "终稿复评失败");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "终稿复评失败");
     } finally {
       setBusy(false);
     }
@@ -122,8 +155,51 @@ export default function App() {
     }
   };
 
+  const downloadPlan = async () => {
+    if (!job) return;
+    try {
+      let current = job;
+      if (cropDirty) {
+        const updated = await saveCrop();
+        if (!updated) return;
+        current = updated;
+      }
+      const payload = {
+        schema_version: "1.0",
+        job_id: current.id,
+        intent: current.intent,
+        selected_candidate_id: current.selected_candidate_id,
+        final_crop: current.final_crop,
+        initial_report: current.report,
+        final_review: reviewJob?.status === "succeeded" ? reviewJob.report : null,
+        capability_status: current.capability_status,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `SmartCrop_${current.id.slice(0, 8)}_plan.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "方案导出失败");
+    }
+  };
+
+  const selectCandidate = (candidate: CropCandidate) => {
+    setDraftCrop(candidate.crop);
+    setReviewJob(null);
+  };
+
+  const aspectRatio = job
+    ? normalizedAspectRatio(job.intent.aspect_ratio, job.image_width, job.image_height)
+    : null;
+
   return (
     <>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="mobile-unsupported">
         <div><SlidersHorizontal aria-hidden="true" size={30} /></div>
         <h1>请使用桌面浏览器</h1>
@@ -172,11 +248,25 @@ export default function App() {
                   <button type="button" className="secondary-button" disabled={!cropDirty || busy} onClick={saveCrop}>
                     <Save aria-hidden="true" size={18} />应用裁剪
                   </button>
+                  <button type="button" className="secondary-button" disabled={busy} onClick={reviewFinal}>
+                    <BrainCircuit aria-hidden="true" size={18} />
+                    {reviewJob && !TERMINAL.has(reviewJob.status) ? "正在复评" : "复评终稿"}
+                  </button>
+                  <button type="button" className="secondary-button" disabled={busy || !job.artifacts.plan} onClick={downloadPlan}>
+                    <FileJson aria-hidden="true" size={18} />导出方案
+                  </button>
                   <button type="button" className="primary-button compact" disabled={busy} onClick={download}>
                     <Download aria-hidden="true" size={18} />下载裁剪图
                   </button>
                 </div>
               </div>
+
+              <div className={`capability-banner status-${job.capability_status}`} role="status">
+                <strong>{job.capability_status === "verified" ? "真实模型已验收" : job.capability_status === "mock" ? "Mock 演示模式" : "真实模型待 GPU 验收"}</strong>
+                <span>{job.capability_status === "verified" ? "多候选与终稿复评已通过当前环境验证。" : "当前可验证交互与契约，不能据此宣称 Venus 已具备稳定的方案比较能力。"}</span>
+              </div>
+
+              <CandidatePanel imageUrl={sourceUrl} candidates={job.candidates} crop={draftCrop} onSelect={selectCandidate} />
 
               <div className="comparison-grid">
                 <article className="image-card">
@@ -184,7 +274,7 @@ export default function App() {
                     <div><span>原图</span><small>拖动框或四角调整，也可使用方向键</small></div>
                     {cropDirty && <span className="change-badge">未应用修改</span>}
                   </div>
-                  <CropEditor imageUrl={sourceUrl} crop={draftCrop} onChange={setDraftCrop} />
+                  <CropEditor imageUrl={sourceUrl} crop={draftCrop} onChange={(crop) => { setDraftCrop(crop); setReviewJob(null); }} aspectRatio={aspectRatio} />
                 </article>
                 <article className="image-card">
                   <div className="image-card-heading">
@@ -192,7 +282,7 @@ export default function App() {
                     <button
                       type="button"
                       className="icon-text-button"
-                      onClick={() => job.ai_crop && setDraftCrop(job.ai_crop)}
+                      onClick={() => { if (job.ai_crop) { setDraftCrop(job.ai_crop); setReviewJob(null); } }}
                       disabled={!job.ai_crop || cropEquals(job.ai_crop, draftCrop)}
                     >
                       <RotateCcw aria-hidden="true" size={16} />恢复 AI 建议
@@ -203,9 +293,10 @@ export default function App() {
               </div>
             </section>
             <ReportPanel
-              report={job.report}
-              adjusted={job.manual_adjusted || cropDirty}
+              report={reviewJob?.status === "succeeded" ? reviewJob.report : job.report}
+              adjusted={reviewJob?.status !== "succeeded" && (job.manual_adjusted || cropDirty)}
               manualOnly={job.manual_only || !job.report}
+              finalReview={reviewJob?.status === "succeeded"}
             />
           </main>
         )}

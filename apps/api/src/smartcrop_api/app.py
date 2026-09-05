@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import shutil
 import uuid
 from collections.abc import AsyncIterator
@@ -9,16 +10,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from smartcrop_contracts import (
+    AnalysisIntent,
     ArtifactLinks,
+    AspectRatio,
     CropRequest,
     ErrorDetail,
+    JobMode,
     JobResponse,
     JobStatus,
+    SceneType,
 )
 from smartcrop_image_core import (
     ImageValidationError,
@@ -37,14 +42,19 @@ class PublicConfig(BaseModel):
     supported_types: list[str]
     retention_seconds: int
     mobile_supported: bool = False
-    report_download_supported: bool = False
+    report_download_supported: bool = True
+    p0_capability_status: str
 
 
 def _progress_message(record: JobRecord, queue_position: int | None) -> str:
     if record.status == JobStatus.QUEUED:
         return f"正在排队，前方还有 {max((queue_position or 1) - 1, 0)} 个任务"
     if record.status == JobStatus.RUNNING:
-        return "Venus 正在分析构图与画面关系"
+        return (
+            "Venus 正在复评最终成片"
+            if record.mode == JobMode.REVIEW
+            else "Venus 正在分析构图与画面关系"
+        )
     if record.status == JobStatus.SUCCEEDED:
         return "分析完成"
     if record.status == JobStatus.FAILED:
@@ -54,7 +64,13 @@ def _progress_message(record: JobRecord, queue_position: int | None) -> str:
     return "任务已过期"
 
 
-def _job_response(store: JobStore, record: JobRecord) -> JobResponse:
+def _capability_status(settings: Settings) -> str:
+    if settings.worker_backend == "mock":
+        return "mock"
+    return "verified" if settings.p0_capabilities_verified else "unverified"
+
+
+def _job_response(store: JobStore, record: JobRecord, settings: Settings) -> JobResponse:
     position = store.queue_position(record.id)
     return JobResponse(
         id=record.id,
@@ -65,6 +81,12 @@ def _job_response(store: JobStore, record: JobRecord) -> JobResponse:
         expires_at=record.expires_at,
         image_width=record.image_width,
         image_height=record.image_height,
+        mode=record.mode,
+        parent_job_id=record.parent_job_id,
+        intent=record.intent,
+        candidates=record.candidates,
+        selected_candidate_id=record.selected_candidate_id,
+        capability_status=_capability_status(settings),
         ai_crop=record.ai_crop,
         final_crop=record.final_crop,
         manual_adjusted=record.manual_adjusted,
@@ -73,6 +95,7 @@ def _job_response(store: JobStore, record: JobRecord) -> JobResponse:
         artifacts=ArtifactLinks(
             preview=f"/v1/jobs/{record.id}/artifacts/preview",
             crop=(f"/v1/jobs/{record.id}/artifacts/crop" if record.crop_path else None),
+            plan=(f"/v1/jobs/{record.id}/artifacts/plan" if record.mode == JobMode.CROP else None),
         ),
         error=(
             ErrorDetail(
@@ -184,6 +207,7 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             max_upload_bytes=resolved.max_upload_bytes,
             supported_types=["image/jpeg", "image/png", "image/webp"],
             retention_seconds=resolved.retention_seconds,
+            p0_capability_status=_capability_status(resolved),
         )
 
     @app.post(
@@ -192,7 +216,11 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         status_code=status.HTTP_202_ACCEPTED,
         dependencies=[access_dependency],
     )
-    async def create_job(file: Annotated[UploadFile, File(...)]) -> JobResponse:
+    async def create_job(
+        file: Annotated[UploadFile, File(...)],
+        scene: Annotated[SceneType, Form()] = SceneType.GENERAL,
+        aspect_ratio: Annotated[AspectRatio, Form()] = AspectRatio.FREE,
+    ) -> JobResponse:
         if store.count_queued() >= resolved.queue_limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -229,18 +257,19 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
                 image_width=decoded.width,
                 image_height=decoded.height,
                 retention_seconds=resolved.retention_seconds,
+                intent=AnalysisIntent(scene=scene, aspect_ratio=aspect_ratio),
             )
         except Exception:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
             raise
-        return _job_response(store, record)
+        return _job_response(store, record, resolved)
 
     @app.get("/v1/jobs/{job_id}", response_model=JobResponse, dependencies=[access_dependency])
     async def get_job(job_id: str) -> JobResponse:
         record = await asyncio.to_thread(store.get_job, job_id)
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在或已过期")
-        return _job_response(store, record)
+        return _job_response(store, record, resolved)
 
     @app.post(
         "/v1/jobs/{job_id}/crop",
@@ -251,6 +280,8 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         record = await asyncio.to_thread(store.get_job, job_id)
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在或已过期")
+        if record.mode != JobMode.CROP:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="复评任务不可裁剪")
         if record.status not in {JobStatus.SUCCEEDED, JobStatus.FAILED}:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -265,6 +296,7 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             job_id,
             request.crop,
             crop_path,
+            request.candidate_id,
         )
         if not updated_crop:
             raise HTTPException(
@@ -274,14 +306,71 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         updated = await asyncio.to_thread(store.get_job, job_id)
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务已过期")
-        return _job_response(store, updated)
+        return _job_response(store, updated, resolved)
+
+    @app.post(
+        "/v1/jobs/{job_id}/review",
+        response_model=JobResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[access_dependency],
+    )
+    async def create_review(job_id: str) -> JobResponse:
+        if store.count_queued() >= resolved.queue_limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="当前排队任务已满，请稍后重试",
+                headers={"Retry-After": "30"},
+            )
+        parent = await asyncio.to_thread(store.get_job, job_id)
+        if parent is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在或已过期")
+        if (
+            parent.mode != JobMode.CROP
+            or parent.status != JobStatus.SUCCEEDED
+            or not parent.crop_path
+        ):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先保存最终裁剪")
+        if not parent.crop_path.exists():
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="最终裁剪已被清理")
+
+        review_id = uuid.uuid4().hex
+        review_dir = resolved.jobs_dir / review_id
+        try:
+            content_type = (
+                "image/png" if parent.crop_path.suffix.lower() == ".png" else "image/jpeg"
+            )
+            payload = await asyncio.to_thread(parent.crop_path.read_bytes)
+            decoded = await asyncio.to_thread(
+                decode_image,
+                payload,
+                content_type,
+                max(len(payload), resolved.max_upload_bytes),
+            )
+            input_path = await asyncio.to_thread(save_normalized_original, decoded, review_dir)
+            preview_path = await asyncio.to_thread(save_preview, decoded, review_dir)
+            review = await asyncio.to_thread(
+                store.create_job,
+                job_id=review_id,
+                input_path=input_path,
+                preview_path=preview_path,
+                source_format=decoded.source_format,
+                image_width=decoded.width,
+                image_height=decoded.height,
+                retention_seconds=resolved.retention_seconds,
+                intent=parent.intent,
+                mode=JobMode.REVIEW,
+                parent_job_id=parent.id,
+            )
+        except Exception:
+            await asyncio.to_thread(shutil.rmtree, review_dir, True)
+            raise
+        return _job_response(store, review, resolved)
 
     @app.get(
         "/v1/jobs/{job_id}/artifacts/{artifact}",
         dependencies=[access_dependency],
-        response_class=FileResponse,
     )
-    async def get_artifact(job_id: str, artifact: str) -> FileResponse:
+    async def get_artifact(job_id: str, artifact: str) -> Response:
         record = await asyncio.to_thread(store.get_job, job_id)
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在或已过期")
@@ -291,6 +380,24 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         elif artifact == "crop" and record.crop_path:
             path = record.crop_path
             filename = f"SmartCrop_{job_id}{record.crop_path.suffix.lower()}"
+        elif artifact == "plan" and record.mode == JobMode.CROP:
+            body = {
+                "schema_version": "1.0",
+                "job_id": record.id,
+                "intent": record.intent.model_dump(mode="json"),
+                "selected_candidate_id": record.selected_candidate_id,
+                "final_crop": record.final_crop.model_dump() if record.final_crop else None,
+                "report": record.report.model_dump(mode="json") if record.report else None,
+                "capability_status": _capability_status(resolved),
+            }
+            return Response(
+                content=json.dumps(body, ensure_ascii=False, indent=2),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f'attachment; filename="SmartCrop_{job_id}_plan.json"',
+                    "Cache-Control": "private, no-store",
+                },
+            )
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="制品不存在")
         if not path.exists():

@@ -30,6 +30,7 @@ class Settings:
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 12.0
+    p0_capabilities_verified: bool = False
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -63,6 +64,9 @@ class Settings:
             ).strip(),
             deepseek_timeout_seconds=float(
                 os.getenv("SMARTCROP_DEEPSEEK_TIMEOUT_SECONDS", 12)
+            ),
+            p0_capabilities_verified=_as_bool(
+                os.getenv("SMARTCROP_P0_CAPABILITIES_VERIFIED"), False
             ),
         )
 

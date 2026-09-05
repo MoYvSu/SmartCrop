@@ -19,24 +19,24 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#7C3AED` | `--color-primary` |
+| Primary | `#1F1E1D` | `--color-primary` |
 | On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#6366F1` | `--color-secondary` |
-| On Secondary | `#000000` | `--color-on-secondary` |
-| Accent/CTA | `#0891B2` | `--color-accent` |
-| On Accent/CTA | `#000000` | `--color-on-accent` |
-| Background | `#0F172A` | `--color-background` |
-| Foreground | `#FFFFFF` | `--color-foreground` |
-| Card | `#192134` | `--color-card` |
-| Card Foreground | `#FFFFFF` | `--color-card-foreground` |
-| Muted | `#171939` | `--color-muted` |
-| Muted Foreground | `#94A3B8` | `--color-muted-foreground` |
-| Border | `rgba(255,255,255,0.08)` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
+| Secondary | `#6E6966` | `--color-secondary` |
+| On Secondary | `#FFFFFF` | `--color-on-secondary` |
+| Accent/CTA | `#5267AD` | `--color-accent` |
+| On Accent/CTA | `#FFFFFF` | `--color-on-accent` |
+| Background | `#F5EFEC` | `--color-background` |
+| Foreground | `#292725` | `--color-foreground` |
+| Card | `#FFFDFB` | `--color-card` |
+| Card Foreground | `#292725` | `--color-card-foreground` |
+| Muted | `#F0ECE9` | `--color-muted` |
+| Muted Foreground | `#6E6966` | `--color-muted-foreground` |
+| Border | `rgba(47,42,39,0.11)` | `--color-border` |
+| Destructive | `#B13E38` | `--color-destructive` |
 | On Destructive | `#FFFFFF` | `--color-on-destructive` |
-| Ring | `#7C3AED` | `--color-ring` |
+| Ring | `#5267AD` | `--color-ring` |
 
-**Color Notes:** Editor violet + filter cyan on dark
+**Color Notes:** Codex-inspired warm neutral canvas, restrained blue accents, and ink-black primary actions. Keep photo preview stages dark for unbiased image inspection.
 
 ### Typography
 
@@ -82,7 +82,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #0891B2;
+  background: #1F1E1D;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -99,8 +99,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #7C3AED;
-  border: 2px solid #7C3AED;
+  color: #292725;
+  border: 1px solid rgba(47,42,39,0.11);
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -113,7 +113,7 @@
 
 ```css
 .card {
-  background: #0F172A;
+  background: #FFFDFB;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -139,9 +139,9 @@
 }
 
 .input:focus {
-  border-color: #7C3AED;
+  border-color: #5267AD;
   outline: none;
-  box-shadow: 0 0 0 3px #7C3AED20;
+  box-shadow: 0 0 0 3px #5267AD20;
 }
 ```
 
@@ -169,7 +169,7 @@
 
 **Style:** Minimalism
 
-**Key Effects:** Subtle glow + Neon accents + High contrast
+**Key Effects:** Soft neutral surfaces + low-contrast borders + restrained shadows
 
 ### Page Pattern
 
@@ -200,7 +200,7 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 ## Anti-Patterns (Do NOT Use)
 
 - ❌ Excessive decoration
-- ❌ Pure white backgrounds
+- ❌ Cold blue-gray backgrounds or saturated neon accents
 
 ### Additional Forbidden Patterns
 
