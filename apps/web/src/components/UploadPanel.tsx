@@ -51,10 +51,10 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
         <p className="eyebrow">AI aesthetic cropping</p>
         <h1>把注意力留给画面本身</h1>
         <p className="intro-copy">
-          先说明用途和成片比例，再从三种构图策略中选择、微调并复评终稿。
+          先说明用途和成片比例，再从三种构图偏好中选择方向并完成精修。
         </p>
         <dl className="intro-facts">
-          <div><dt>输出</dt><dd>三种构图策略 + 可编辑终稿 + 方案文件</dd></div>
+          <div><dt>输出</dt><dd>三种构图偏好 + 可编辑成片 + 方案文件</dd></div>
           <div><dt>隐私</dt><dd>任务文件将在 1 小时后清理</dd></div>
           <div><dt>格式</dt><dd>JPEG、PNG、WebP，最大 20 MB</dd></div>
         </dl>

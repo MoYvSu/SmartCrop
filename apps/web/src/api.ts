@@ -71,15 +71,6 @@ export async function updateCrop(
   );
 }
 
-export async function createReview(jobId: string, accessCode: string): Promise<JobResponse> {
-  return expectJson<JobResponse>(
-    await fetch(`/v1/jobs/${jobId}/review`, {
-      method: "POST",
-      headers: headers(accessCode),
-    }),
-  );
-}
-
 export async function downloadArtifact(
   path: string,
   accessCode: string,

@@ -1,7 +1,7 @@
-import { Check, Focus, Frame, Trees } from "lucide-react";
+import { Check, ChevronDown, Focus, Frame, Trees } from "lucide-react";
+import { useState } from "react";
 
-import type { CropBox, CropCandidate } from "../types";
-import { cropEquals } from "../lib/crop";
+import type { CropCandidate } from "../types";
 import { CropPreview } from "./CropPreview";
 
 const COPY = {
@@ -13,12 +13,19 @@ const COPY = {
 interface Props {
   imageUrl: string;
   candidates: CropCandidate[];
-  crop: CropBox;
+  selectedCandidateId: CropCandidate["id"] | null;
   onSelect: (candidate: CropCandidate) => void;
 }
 
-export function CandidatePanel({ imageUrl, candidates, crop, onSelect }: Props) {
+export function CandidatePanel({ imageUrl, candidates, selectedCandidateId, onSelect }: Props) {
+  const [expanded, setExpanded] = useState(false);
   if (!candidates.length) return null;
+
+  const selectedCandidate =
+    candidates.find((candidate) => candidate.id === selectedCandidateId) || candidates[0];
+  const alternatives = candidates.filter((candidate) => candidate.id !== selectedCandidate.id);
+  const selectedCopy = COPY[selectedCandidate.id];
+
   return (
     <section className="candidate-panel" aria-labelledby="candidate-heading">
       <div className="candidate-heading">
@@ -26,30 +33,53 @@ export function CandidatePanel({ imageUrl, candidates, crop, onSelect }: Props) 
           <p className="eyebrow">Composition directions</p>
           <h2 id="candidate-heading">先选方向，再做精修</h2>
         </div>
-        <span>共 {candidates.length} 个候选</span>
+        <span>AI 提供方向，由你决定</span>
       </div>
-      <div className="candidate-grid">
-        {candidates.map((candidate) => {
+
+      <article className="candidate-current" aria-label={`当前方案：${selectedCopy.name}`}>
+        <span className="candidate-preview candidate-preview-current">
+          <CropPreview imageUrl={imageUrl} crop={selectedCandidate.crop} />
+        </span>
+        <span className="candidate-copy">
+          <span className="candidate-state"><Check size={14} aria-hidden="true" />当前方案</span>
+          <strong><selectedCopy.Icon size={17} aria-hidden="true" />{selectedCopy.name}</strong>
+          <small>{selectedCopy.note}。AI 已按此偏好独立生成。</small>
+        </span>
+      </article>
+
+      {alternatives.length > 0 && <button
+        type="button"
+        className="candidate-toggle"
+        aria-expanded={expanded}
+        aria-controls="candidate-alternatives"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {expanded ? "收起其他构图" : `查看其他 ${alternatives.length} 个构图`}
+        <ChevronDown className={expanded ? "is-expanded" : ""} size={17} aria-hidden="true" />
+      </button>}
+
+      {expanded && <div className="candidate-grid candidate-alternatives" id="candidate-alternatives">
+        {alternatives.map((candidate) => {
           const { name, note, Icon } = COPY[candidate.id];
-          const selected = cropEquals(candidate.crop, crop);
           return (
             <button
               type="button"
               key={candidate.id}
-              className={`candidate-card ${selected ? "is-selected" : ""}`}
-              onClick={() => onSelect(candidate)}
-              aria-pressed={selected}
+              className="candidate-card"
+              onClick={() => {
+                onSelect(candidate);
+                setExpanded(false);
+              }}
             >
               <span className="candidate-preview"><CropPreview imageUrl={imageUrl} crop={candidate.crop} /></span>
               <span className="candidate-copy">
                 <strong><Icon size={16} aria-hidden="true" />{name}</strong>
                 <small>{note}</small>
               </span>
-              {selected && <Check className="candidate-check" size={17} aria-label="已选择" />}
             </button>
           );
         })}
-      </div>
+      </div>}
     </section>
   );
 }

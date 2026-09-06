@@ -1,8 +1,11 @@
 # ADR-0005：终稿复评任务与能力状态门禁
 
-状态：Accepted
+状态：Superseded by ADR-0006
 
 日期：2026-09-05
+
+> 公开产品中的终稿复评入口已由
+> [ADR-0006](0006-human-selection-over-final-review.md) 取代；底层任务实现暂时保留为实验接口。
 
 ## 背景
 

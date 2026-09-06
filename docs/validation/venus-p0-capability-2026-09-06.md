@@ -2,6 +2,10 @@
 
 状态：**未通过，不得启用能力开关**
 
+后续产品决策：候选差异性不再作为 P0.5 阻断条件；终稿复评从公开界面隐藏。
+详见 [P0.5 产品路线](../product/p0-5-human-guided-composition.md) 与
+[ADR-0006](../decisions/0006-human-selection-over-final-review.md)。本报告保留当时的实测证据。
+
 测试日期：2026-09-06（Asia/Shanghai）
 
 产品提交：`2598280 feat: add P0 composition workflow`

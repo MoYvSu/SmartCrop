@@ -6,10 +6,9 @@ interface Props {
   report: AestheticReport | null;
   adjusted: boolean;
   manualOnly: boolean;
-  finalReview?: boolean;
 }
 
-export function ReportPanel({ report, adjusted, manualOnly, finalReview = false }: Props) {
+export function ReportPanel({ report, adjusted, manualOnly }: Props) {
   const isChinese = report?.language === "zh-CN";
   const translated = report?.language === "zh-CN" && report.translation_provider === "deepseek";
 
@@ -18,9 +17,7 @@ export function ReportPanel({ report, adjusted, manualOnly, finalReview = false 
       <div className="section-heading">
         <div>
           <p className="eyebrow">
-            {finalReview
-              ? "Final composition review"
-              : manualOnly
+            {manualOnly
               ? "Manual crop"
               : translated
                 ? "Venus 分析 · DeepSeek 翻译"
@@ -28,7 +25,7 @@ export function ReportPanel({ report, adjusted, manualOnly, finalReview = false 
                   ? "AI 示例分析"
                   : "Venus 原始分析"}
           </p>
-          <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : finalReview ? "终稿复评报告" : "初始美学报告"}</h2>
+          <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : "画面分析"}</h2>
           {!manualOnly && translated && (
             <p className="report-language-note">报告由 Venus 生成，并经 DeepSeek 翻译为简体中文。</p>
           )}
@@ -51,10 +48,10 @@ export function ReportPanel({ report, adjusted, manualOnly, finalReview = false 
         </div>
       )}
 
-      {!manualOnly && adjusted && !finalReview && (
+      {!manualOnly && adjusted && (
         <div className="adjusted-note">
           <CircleAlert size={18} aria-hidden="true" />
-          <span>画面已调整；点击“复评终稿”可生成针对最终成片的新报告。</span>
+          <span>画面已由你调整；当前报告仍解释 AI 初始分析，最终构图由你确认。</span>
         </div>
       )}
 
@@ -71,7 +68,7 @@ export function ReportPanel({ report, adjusted, manualOnly, finalReview = false 
         <ul>{report.issues.map((item) => <li key={item}>{item}</li>)}</ul>
       </section>}
       {report && <section className="report-section">
-        <h3><Target size={17} aria-hidden="true" />{finalReview ? "终稿构图" : "裁剪理由"}</h3>
+        <h3><Target size={17} aria-hidden="true" />裁剪理由</h3>
         <p>{report.crop_rationale}</p>
       </section>}
       {report && <section className="report-section">

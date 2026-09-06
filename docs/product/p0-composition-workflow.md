@@ -1,8 +1,11 @@
 # P0：意图驱动的构图工作流
 
-状态：Implemented, Venus validation deferred
+状态：Superseded by P0.5
 
 日期：2026-09-05
+
+> 2026-09-06 的真实模型验证确认终稿复评不够可靠。公开产品已转向
+> [P0.5 人机协同构图助手](p0-5-human-guided-composition.md)，本文件保留为历史设计记录。
 
 ## 用户链路
 

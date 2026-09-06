@@ -1,7 +1,7 @@
-import { BrainCircuit, Download, FileJson, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Download, FileJson, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, createJob, createReview, downloadArtifact, getJob, updateCrop } from "./api";
+import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
 import { CandidatePanel } from "./components/CandidatePanel";
 import { CropEditor } from "./components/CropEditor";
 import { CropPreview } from "./components/CropPreview";
@@ -23,7 +23,7 @@ export default function App() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [job, setJob] = useState<JobResponse | null>(null);
   const [draftCrop, setDraftCrop] = useState<CropBox | null>(null);
-  const [reviewJob, setReviewJob] = useState<JobResponse | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<CropCandidate["id"] | null>(null);
   const [phase, setPhase] = useState<"upload" | "processing" | "result">("upload");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,7 +43,7 @@ export default function App() {
     setSourceUrl("");
     setJob(null);
     setDraftCrop(null);
-    setReviewJob(null);
+    setSelectedCandidateId(null);
     setError("");
     setBusy(false);
     setPhase("upload");
@@ -67,6 +67,7 @@ export default function App() {
       }
       if (current.status === "failed") {
         setDraftCrop(DEFAULT_MANUAL_CROP);
+        setSelectedCandidateId(null);
         setPhase("result");
         return;
       }
@@ -74,6 +75,7 @@ export default function App() {
         throw new Error(current.error?.message || "任务未能完成，请重新上传图片");
       }
       setDraftCrop(current.final_crop);
+      setSelectedCandidateId(current.selected_candidate_id || current.candidates[0]?.id || null);
       setPhase("result");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "提交失败，请稍后重试";
@@ -87,16 +89,25 @@ export default function App() {
   const cropDirty = Boolean(
     draftCrop && (!job?.final_crop || !cropEquals(job.final_crop, draftCrop)),
   );
+  const selectionDirty = Boolean(
+    selectedCandidateId && selectedCandidateId !== job?.selected_candidate_id,
+  );
+  const hasPendingChanges = cropDirty || selectionDirty;
 
   const saveCrop = async (): Promise<JobResponse | null> => {
     if (!job || !draftCrop) return null;
     setBusy(true);
     setError("");
     try {
-      const selected = job.candidates.find((candidate) => cropEquals(candidate.crop, draftCrop));
-      const updated = await updateCrop(job.id, draftCrop, accessCode, selected?.id);
+      const updated = await updateCrop(
+        job.id,
+        draftCrop,
+        accessCode,
+        selectedCandidateId || undefined,
+      );
       setJob(updated);
       setDraftCrop(updated.final_crop);
+      setSelectedCandidateId(updated.selected_candidate_id || selectedCandidateId);
       return updated;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存裁剪失败");
@@ -106,39 +117,10 @@ export default function App() {
     }
   };
 
-  const reviewFinal = async () => {
-    if (!job) return;
-    setBusy(true);
-    setError("");
-    const token = ++pollToken.current;
-    try {
-      let current = job;
-      if (cropDirty) {
-        const updated = await saveCrop();
-        if (!updated) return;
-        current = updated;
-        setBusy(true);
-      }
-      let review = await createReview(current.id, accessCode);
-      setReviewJob(review);
-      while (!TERMINAL.has(review.status)) {
-        await sleep(1500);
-        if (token !== pollToken.current) return;
-        review = await getJob(review.id, accessCode);
-        setReviewJob(review);
-      }
-      if (review.status !== "succeeded") throw new Error(review.error?.message || "终稿复评失败");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "终稿复评失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const download = async () => {
     if (!job) return;
     let current = job;
-    if (cropDirty) {
+    if (hasPendingChanges) {
       const updated = await saveCrop();
       if (!updated) return;
       current = updated;
@@ -159,19 +141,19 @@ export default function App() {
     if (!job) return;
     try {
       let current = job;
-      if (cropDirty) {
+      if (hasPendingChanges) {
         const updated = await saveCrop();
         if (!updated) return;
         current = updated;
       }
       const payload = {
-        schema_version: "1.0",
+        schema_version: "1.1",
         job_id: current.id,
         intent: current.intent,
         selected_candidate_id: current.selected_candidate_id,
+        selection_mode: "human",
         final_crop: current.final_crop,
         initial_report: current.report,
-        final_review: reviewJob?.status === "succeeded" ? reviewJob.report : null,
         capability_status: current.capability_status,
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -190,7 +172,15 @@ export default function App() {
 
   const selectCandidate = (candidate: CropCandidate) => {
     setDraftCrop(candidate.crop);
-    setReviewJob(null);
+    setSelectedCandidateId(candidate.id);
+  };
+
+  const restoreAiSuggestion = () => {
+    const aiCrop = job?.ai_crop;
+    if (!job || !aiCrop) return;
+    setDraftCrop(aiCrop);
+    const sourceCandidate = job.candidates.find((candidate) => cropEquals(candidate.crop, aiCrop));
+    setSelectedCandidateId(sourceCandidate?.id || job.selected_candidate_id || null);
   };
 
   const aspectRatio = job
@@ -203,7 +193,7 @@ export default function App() {
       <div className="mobile-unsupported">
         <div><SlidersHorizontal aria-hidden="true" size={30} /></div>
         <h1>请使用桌面浏览器</h1>
-        <p>SmartCrop V1 暂不支持手机端。API 已保留未来扩展能力。</p>
+        <p>SmartCrop 当前暂不支持手机端。API 已保留未来扩展能力。</p>
       </div>
 
       <div className="desktop-app">
@@ -245,12 +235,8 @@ export default function App() {
                   <button type="button" className="secondary-button" onClick={reset}>
                     <ImagePlus aria-hidden="true" size={18} />分析另一张
                   </button>
-                  <button type="button" className="secondary-button" disabled={!cropDirty || busy} onClick={saveCrop}>
+                  <button type="button" className="secondary-button" disabled={!hasPendingChanges || busy} onClick={saveCrop}>
                     <Save aria-hidden="true" size={18} />应用裁剪
-                  </button>
-                  <button type="button" className="secondary-button" disabled={busy} onClick={reviewFinal}>
-                    <BrainCircuit aria-hidden="true" size={18} />
-                    {reviewJob && !TERMINAL.has(reviewJob.status) ? "正在复评" : "复评终稿"}
                   </button>
                   <button type="button" className="secondary-button" disabled={busy || !job.artifacts.plan} onClick={downloadPlan}>
                     <FileJson aria-hidden="true" size={18} />导出方案
@@ -262,11 +248,16 @@ export default function App() {
               </div>
 
               <div className={`capability-banner status-${job.capability_status}`} role="status">
-                <strong>{job.capability_status === "verified" ? "真实模型已验收" : job.capability_status === "mock" ? "Mock 演示模式" : "真实模型待 GPU 验收"}</strong>
-                <span>{job.capability_status === "verified" ? "多候选与终稿复评已通过当前环境验证。" : "当前可验证交互与契约，不能据此宣称 Venus 已具备稳定的方案比较能力。"}</span>
+                <strong>{job.capability_status === "mock" ? "Mock 演示模式" : "AI 构图建议"}</strong>
+                <span>{job.capability_status === "mock" ? "当前结果用于验证交互与制品链路。" : "三个方案按不同构图偏好分别生成，最终方向由你选择。"}</span>
               </div>
 
-              <CandidatePanel imageUrl={sourceUrl} candidates={job.candidates} crop={draftCrop} onSelect={selectCandidate} />
+              <CandidatePanel
+                imageUrl={sourceUrl}
+                candidates={job.candidates}
+                selectedCandidateId={selectedCandidateId}
+                onSelect={selectCandidate}
+              />
 
               <div className="comparison-grid">
                 <article className="image-card">
@@ -274,7 +265,7 @@ export default function App() {
                     <div><span>原图</span><small>拖动框或四角调整，也可使用方向键</small></div>
                     {cropDirty && <span className="change-badge">未应用修改</span>}
                   </div>
-                  <CropEditor imageUrl={sourceUrl} crop={draftCrop} onChange={(crop) => { setDraftCrop(crop); setReviewJob(null); }} aspectRatio={aspectRatio} />
+                  <CropEditor imageUrl={sourceUrl} crop={draftCrop} onChange={setDraftCrop} aspectRatio={aspectRatio} />
                 </article>
                 <article className="image-card">
                   <div className="image-card-heading">
@@ -282,7 +273,7 @@ export default function App() {
                     <button
                       type="button"
                       className="icon-text-button"
-                      onClick={() => { if (job.ai_crop) { setDraftCrop(job.ai_crop); setReviewJob(null); } }}
+                      onClick={restoreAiSuggestion}
                       disabled={!job.ai_crop || cropEquals(job.ai_crop, draftCrop)}
                     >
                       <RotateCcw aria-hidden="true" size={16} />恢复 AI 建议
@@ -293,10 +284,9 @@ export default function App() {
               </div>
             </section>
             <ReportPanel
-              report={reviewJob?.status === "succeeded" ? reviewJob.report : job.report}
-              adjusted={reviewJob?.status !== "succeeded" && (job.manual_adjusted || cropDirty)}
+              report={job.report}
+              adjusted={job.manual_adjusted || cropDirty}
               manualOnly={job.manual_only || !job.report}
-              finalReview={reviewJob?.status === "succeeded"}
             />
           </main>
         )}
