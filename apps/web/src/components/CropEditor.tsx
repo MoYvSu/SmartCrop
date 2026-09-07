@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
 import { clamp, fitCropToAspect, MIN_CROP_SIZE, moveCrop } from "../lib/crop";
-import type { CropBox } from "../types";
+import type { CompositionGuide, CropBox } from "../types";
 
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 
@@ -20,6 +20,7 @@ interface Props {
   crop: CropBox;
   onChange: (crop: CropBox) => void;
   aspectRatio?: number | null;
+  guides?: CompositionGuide[];
 }
 
 const handleLabels: Record<Exclude<Handle, "move">, string> = {
@@ -45,7 +46,13 @@ function resizeCrop(start: CropBox, handle: Handle, dx: number, dy: number): Cro
   return { x, y, width: nextRight - x, height: nextBottom - y };
 }
 
-export function CropEditor({ imageUrl, crop, onChange, aspectRatio = null }: Props) {
+export function CropEditor({
+  imageUrl,
+  crop,
+  onChange,
+  aspectRatio = null,
+  guides = ["thirds"],
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
 
@@ -128,8 +135,28 @@ export function CropEditor({ imageUrl, crop, onChange, aspectRatio = null }: Pro
         onPointerDown={(event) => startInteraction("move", event)}
         onKeyDown={onKeyDown}
       >
-        <span className="crop-grid grid-one" aria-hidden="true" />
-        <span className="crop-grid grid-two" aria-hidden="true" />
+        <span className="crop-guides" aria-hidden="true">
+          {guides.includes("thirds") && (
+            <span className="thirds-guide">
+              <i className="guide-vertical guide-first" />
+              <i className="guide-vertical guide-second" />
+              <i className="guide-horizontal guide-first" />
+              <i className="guide-horizontal guide-second" />
+            </span>
+          )}
+          {guides.includes("center") && (
+            <span className="center-guide">
+              <i className="guide-vertical" />
+              <i className="guide-horizontal" />
+            </span>
+          )}
+          {guides.includes("diagonal") && (
+            <svg className="diagonal-guide" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <path d="M0 0 L100 100 M100 0 L0 100" />
+            </svg>
+          )}
+          {guides.includes("safe") && <span className="safe-area-guide" />}
+        </span>
         {(["nw", "ne", "sw", "se"] as const).map((handle) => (
           <button
             type="button"

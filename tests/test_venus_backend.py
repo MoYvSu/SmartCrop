@@ -1,5 +1,11 @@
 import pytest
-from smartcrop_contracts import AnalysisIntent, AspectRatio, SceneType
+from smartcrop_contracts import (
+    AnalysisIntent,
+    AspectRatio,
+    CustomRatio,
+    OutputTemplate,
+    SceneType,
+)
 from smartcrop_worker.backends.venus import (
     _build_crop_prompt,
     _build_direct_report_prompt,
@@ -65,3 +71,19 @@ def test_crop_prompt_carries_scene_ratio_and_strategy() -> None:
     assert "portrait photography" in prompt
     assert "4:5" in prompt
     assert "emphasizes the main subject" in prompt
+
+
+def test_crop_prompt_carries_template_and_custom_ratio() -> None:
+    prompt = _build_crop_prompt(
+        AnalysisIntent(
+            scene=SceneType.PRODUCT,
+            aspect_ratio=AspectRatio.CUSTOM,
+            output_template=OutputTemplate.CUSTOM,
+            custom_ratio=CustomRatio(width=7, height=5),
+        ),
+        "balanced",
+    )
+
+    assert "custom-ratio publishing asset" in prompt
+    assert "7:5" in prompt
+    assert "visually balanced composition" in prompt

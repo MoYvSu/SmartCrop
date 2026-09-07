@@ -15,6 +15,7 @@ from smartcrop_contracts import (
     JobMode,
     JobStatus,
     Report,
+    SelectionReason,
 )
 
 
@@ -50,6 +51,9 @@ class JobRecord:
     report: Report | None
     manual_adjusted: bool
     manual_only: bool
+    selection_confirmed: bool
+    selection_reasons: list[SelectionReason]
+    selection_note: str | None
     error_code: str | None
     error_message: str | None
     created_at: datetime
@@ -102,6 +106,9 @@ class JobStore:
                     report_json TEXT,
                     manual_adjusted INTEGER NOT NULL DEFAULT 0,
                     manual_only INTEGER NOT NULL DEFAULT 0,
+                    selection_confirmed INTEGER NOT NULL DEFAULT 0,
+                    selection_reasons_json TEXT NOT NULL DEFAULT '[]',
+                    selection_note TEXT,
                     error_code TEXT,
                     error_message TEXT,
                     created_at TEXT NOT NULL,
@@ -130,6 +137,14 @@ class JobStore:
                 "intent_json": "ALTER TABLE jobs ADD COLUMN intent_json TEXT",
                 "candidates_json": "ALTER TABLE jobs ADD COLUMN candidates_json TEXT",
                 "selected_candidate_id": "ALTER TABLE jobs ADD COLUMN selected_candidate_id TEXT",
+                "selection_confirmed": (
+                    "ALTER TABLE jobs ADD COLUMN selection_confirmed INTEGER NOT NULL DEFAULT 0"
+                ),
+                "selection_reasons_json": (
+                    "ALTER TABLE jobs ADD COLUMN selection_reasons_json "
+                    "TEXT NOT NULL DEFAULT '[]'"
+                ),
+                "selection_note": "ALTER TABLE jobs ADD COLUMN selection_note TEXT",
             }
             for column, statement in migrations.items():
                 if column not in columns:
@@ -340,13 +355,17 @@ class JobStore:
         crop: CropBox,
         crop_path: Path,
         candidate_id: str | None = None,
+        selection_reasons: list[SelectionReason] | None = None,
+        selection_note: str | None = None,
+        manual_adjusted: bool = True,
     ) -> bool:
         now = utc_now()
         with self._connect() as connection:
             result = connection.execute(
                 """
                 UPDATE jobs SET status = ?, final_crop_json = ?, crop_path = ?,
-                    manual_adjusted = 1, selected_candidate_id = ?,
+                    manual_adjusted = ?, selected_candidate_id = ?, selection_confirmed = 1,
+                    selection_reasons_json = ?, selection_note = ?,
                     manual_only = CASE WHEN report_json IS NULL THEN 1 ELSE manual_only END,
                     completed_at = COALESCE(completed_at, ?), updated_at = ?
                 WHERE id = ? AND status IN (?, ?)
@@ -355,7 +374,13 @@ class JobStore:
                     JobStatus.SUCCEEDED.value,
                     crop.model_dump_json(),
                     str(crop_path),
+                    int(manual_adjusted),
                     candidate_id,
+                    json.dumps(
+                        [reason.value for reason in selection_reasons or []],
+                        ensure_ascii=False,
+                    ),
+                    selection_note,
                     to_iso(now),
                     to_iso(now),
                     job_id,
@@ -438,6 +463,12 @@ class JobStore:
             report=report,
             manual_adjusted=bool(row["manual_adjusted"]),
             manual_only=bool(row["manual_only"]),
+            selection_confirmed=bool(row["selection_confirmed"]),
+            selection_reasons=[
+                SelectionReason(reason)
+                for reason in json.loads(row["selection_reasons_json"] or "[]")
+            ],
+            selection_note=row["selection_note"],
             error_code=row["error_code"],
             error_message=row["error_message"],
             created_at=from_iso(row["created_at"]),

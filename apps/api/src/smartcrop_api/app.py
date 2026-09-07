@@ -13,21 +13,26 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from smartcrop_contracts import (
+    MIN_NORMALIZED_CROP_DIMENSION,
     AnalysisIntent,
     ArtifactLinks,
     AspectRatio,
     CropRequest,
+    CustomRatio,
     ErrorDetail,
     JobMode,
     JobResponse,
     JobStatus,
+    OutputTemplate,
     SceneType,
 )
 from smartcrop_image_core import (
     ImageValidationError,
+    crop_matches_ratio,
     crop_original,
+    crop_pixel_size,
     decode_image,
     save_normalized_original,
     save_preview,
@@ -70,6 +75,81 @@ def _capability_status(settings: Settings) -> str:
     return "verified" if settings.p0_capabilities_verified else "unverified"
 
 
+def _ensure_ratio_is_feasible(intent: AnalysisIntent, image_width: int, image_height: int) -> None:
+    ratio = intent.ratio_components
+    if ratio is None:
+        return
+    normalized_ratio = (ratio[0] / ratio[1]) * image_height / image_width
+    if not (
+        MIN_NORMALIZED_CROP_DIMENSION
+        <= normalized_ratio
+        <= 1 / MIN_NORMALIZED_CROP_DIMENSION
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"原图宽高与目标比例 {intent.resolved_aspect_ratio} 差异过大，"
+                "无法保留最小有效裁剪区域"
+            ),
+        )
+
+
+def _processing_duration_ms(record: JobRecord) -> int | None:
+    if record.started_at is None or record.completed_at is None:
+        return None
+    return max(0, round((record.completed_at - record.started_at).total_seconds() * 1000))
+
+
+def _crop_matches(left, right, epsilon: float = 1e-4) -> bool:
+    if left is None or right is None:
+        return False
+    return all(
+        abs(getattr(left, field) - getattr(right, field)) <= epsilon
+        for field in ("x", "y", "width", "height")
+    )
+
+
+def _plan_payload(record: JobRecord, settings: Settings) -> dict:
+    output_width = output_height = None
+    ratio_compliant = None
+    if record.final_crop is not None:
+        output_width, output_height = crop_pixel_size(
+            record.image_width,
+            record.image_height,
+            record.final_crop,
+        )
+        ratio_compliant = crop_matches_ratio(
+            record.image_width,
+            record.image_height,
+            record.final_crop,
+            record.intent.ratio_components,
+        )
+    initial_report = record.report.model_dump(mode="json") if record.report else None
+    return {
+        "schema_version": "1.2",
+        "job_id": record.id,
+        "intent": record.intent.model_dump(mode="json"),
+        "selection_mode": "human" if record.selection_confirmed else "unconfirmed",
+        "selection_confirmed": record.selection_confirmed,
+        "selected_candidate_id": record.selected_candidate_id,
+        "selection_reasons": [reason.value for reason in record.selection_reasons],
+        "selection_note": record.selection_note,
+        "manual_adjusted": record.manual_adjusted,
+        "processing_duration_ms": _processing_duration_ms(record),
+        "final_crop": record.final_crop.model_dump() if record.final_crop else None,
+        "initial_report": initial_report,
+        "report": initial_report,
+        "capability_status": _capability_status(settings),
+        "provenance": "runtime",
+        "output": {
+            "source_size": {"width": record.image_width, "height": record.image_height},
+            "crop_size": {"width": output_width, "height": output_height},
+            "requested_ratio": record.intent.resolved_aspect_ratio,
+            "ratio_compliant": ratio_compliant,
+        },
+    }
+
+
 def _job_response(store: JobStore, record: JobRecord, settings: Settings) -> JobResponse:
     position = store.queue_position(record.id)
     return JobResponse(
@@ -91,6 +171,10 @@ def _job_response(store: JobStore, record: JobRecord, settings: Settings) -> Job
         final_crop=record.final_crop,
         manual_adjusted=record.manual_adjusted,
         manual_only=record.manual_only,
+        selection_confirmed=record.selection_confirmed,
+        selection_reasons=record.selection_reasons,
+        selection_note=record.selection_note,
+        processing_duration_ms=_processing_duration_ms(record),
         report=record.report,
         artifacts=ArtifactLinks(
             preview=f"/v1/jobs/{record.id}/artifacts/preview",
@@ -220,6 +304,9 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         file: Annotated[UploadFile, File(...)],
         scene: Annotated[SceneType, Form()] = SceneType.GENERAL,
         aspect_ratio: Annotated[AspectRatio, Form()] = AspectRatio.FREE,
+        output_template: Annotated[OutputTemplate | None, Form()] = None,
+        custom_ratio_width: Annotated[int | None, Form()] = None,
+        custom_ratio_height: Annotated[int | None, Form()] = None,
     ) -> JobResponse:
         if store.count_queued() >= resolved.queue_limit:
             raise HTTPException(
@@ -248,6 +335,29 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         try:
             input_path = await asyncio.to_thread(save_normalized_original, decoded, job_dir)
             preview_path = await asyncio.to_thread(save_preview, decoded, job_dir)
+            if (custom_ratio_width is None) != (custom_ratio_height is None):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="自定义比例的宽和高必须同时填写",
+                )
+            try:
+                custom_ratio = (
+                    CustomRatio(width=custom_ratio_width, height=custom_ratio_height)
+                    if custom_ratio_width is not None and custom_ratio_height is not None
+                    else None
+                )
+                intent = AnalysisIntent(
+                    scene=scene,
+                    aspect_ratio=aspect_ratio,
+                    output_template=output_template,
+                    custom_ratio=custom_ratio,
+                )
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(exc.errors()[0]["msg"]),
+                ) from exc
+            _ensure_ratio_is_feasible(intent, decoded.width, decoded.height)
             record = await asyncio.to_thread(
                 store.create_job,
                 job_id=job_id,
@@ -257,7 +367,7 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
                 image_width=decoded.width,
                 image_height=decoded.height,
                 retention_seconds=resolved.retention_seconds,
-                intent=AnalysisIntent(scene=scene, aspect_ratio=aspect_ratio),
+                intent=intent,
             )
         except Exception:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
@@ -287,16 +397,37 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
                 status_code=status.HTTP_409_CONFLICT,
                 detail="任务尚未进入可裁剪状态",
             )
+        if not crop_matches_ratio(
+            record.image_width,
+            record.image_height,
+            request.crop,
+            record.intent.ratio_components,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"裁剪框不符合目标比例 {record.intent.resolved_aspect_ratio}",
+            )
 
         suffix = ".png" if record.input_path.suffix.lower() == ".png" else ".jpg"
         crop_path = record.input_path.parent / f"crop{suffix}"
         await asyncio.to_thread(crop_original, record.input_path, request.crop, crop_path)
+        reference_crop = next(
+            (
+                candidate.crop
+                for candidate in record.candidates
+                if candidate.id == request.candidate_id
+            ),
+            record.ai_crop,
+        )
         updated_crop = await asyncio.to_thread(
             store.update_manual_crop,
             job_id,
             request.crop,
             crop_path,
             request.candidate_id,
+            request.selection_reasons,
+            request.selection_note,
+            not _crop_matches(reference_crop, request.crop),
         )
         if not updated_crop:
             raise HTTPException(
@@ -381,15 +512,7 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             path = record.crop_path
             filename = f"SmartCrop_{job_id}{record.crop_path.suffix.lower()}"
         elif artifact == "plan" and record.mode == JobMode.CROP:
-            body = {
-                "schema_version": "1.0",
-                "job_id": record.id,
-                "intent": record.intent.model_dump(mode="json"),
-                "selected_candidate_id": record.selected_candidate_id,
-                "final_crop": record.final_crop.model_dump() if record.final_crop else None,
-                "report": record.report.model_dump(mode="json") if record.report else None,
-                "capability_status": _capability_status(resolved),
-            }
+            body = _plan_payload(record, resolved)
             return Response(
                 content=json.dumps(body, ensure_ascii=False, indent=2),
                 media_type="application/json",

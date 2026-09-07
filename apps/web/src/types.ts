@@ -13,12 +13,35 @@ export interface CropBox {
   height: number;
 }
 
+export type CompositionGuide = "thirds" | "center" | "diagonal" | "safe";
+export type RunProvenance = "upload" | "authorized_realtime" | "pregenerated";
+
 export type SceneType = "general" | "portrait" | "landscape" | "product" | "social";
 export type AspectRatio = "free" | "1:1" | "4:5" | "3:4" | "16:9";
+export type OutputTemplate =
+  | "freeform"
+  | "avatar"
+  | "social_cover"
+  | "product_main"
+  | "presentation"
+  | "custom";
+export type SelectionReason =
+  | "subject_emphasis"
+  | "context_preservation"
+  | "visual_balance"
+  | "platform_fit"
+  | "other";
+
+export interface CustomRatio {
+  width: number;
+  height: number;
+}
 
 export interface AnalysisIntent {
   scene: SceneType;
-  aspect_ratio: AspectRatio;
+  aspect_ratio: AspectRatio | "custom";
+  output_template: OutputTemplate | null;
+  custom_ratio: CustomRatio | null;
 }
 
 export interface CropCandidate {
@@ -50,11 +73,15 @@ export interface JobResponse {
   intent: AnalysisIntent;
   candidates: CropCandidate[];
   selected_candidate_id: CropCandidate["id"] | null;
-  capability_status: "mock" | "unverified" | "verified";
+  capability_status: "not_run" | "mock" | "unverified" | "verified";
   ai_crop: CropBox | null;
   final_crop: CropBox | null;
   manual_adjusted: boolean;
   manual_only: boolean;
+  selection_confirmed: boolean;
+  selection_reasons: SelectionReason[];
+  selection_note: string | null;
+  processing_duration_ms: number | null;
   report: AestheticReport | null;
   artifacts: {
     preview: string | null;

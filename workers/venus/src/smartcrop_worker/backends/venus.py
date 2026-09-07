@@ -33,17 +33,29 @@ SCENE_LABELS = {
     "social": "social-media publishing",
 }
 
+OUTPUT_TEMPLATE_LABELS = {
+    "freeform": "a freeform original-resolution crop",
+    "avatar": "a square profile avatar",
+    "social_cover": "a wide social-media cover",
+    "product_main": "a portrait-oriented product hero image",
+    "presentation": "a widescreen presentation visual",
+    "custom": "a custom-ratio publishing asset",
+}
+
 
 def _build_crop_prompt(intent: AnalysisIntent, strategy: str) -> str:
-    ratio = (
-        "a free aspect ratio"
-        if intent.aspect_ratio.value == "free"
-        else intent.aspect_ratio.value
+    resolved_ratio = intent.resolved_aspect_ratio
+    ratio = "a free aspect ratio" if resolved_ratio == "free" else resolved_ratio
+    template = (
+        OUTPUT_TEMPLATE_LABELS[intent.output_template.value]
+        if intent.output_template is not None
+        else "a general publishing asset"
     )
     return (
         "Please provide the bounding box coordinate for "
         f"{CROP_STRATEGIES[strategy]}. The intended use is "
-        f"{SCENE_LABELS[intent.scene.value]} and the requested output uses {ratio}. "
+        f"{SCENE_LABELS[intent.scene.value]}; the delivery target is {template}, "
+        f"and the requested output uses {ratio}. "
         "Return only two corner coordinates."
     )
 
@@ -218,7 +230,7 @@ def _build_review_prompt(intent: AnalysisIntent) -> str:
     return f"""
 Analyze this final cropped image directly as a professional photography critic.
 The intended use is {SCENE_LABELS[intent.scene.value]} and the requested aspect
-ratio is {intent.aspect_ratio.value}.
+ratio is {intent.resolved_aspect_ratio}.
 
 Return exactly one valid JSON object and no Markdown or extra text. The object must
 contain exactly these fields: "overview", "strengths", "issues",
@@ -343,7 +355,7 @@ class VenusBackend:
                     id=strategy,
                     crop=fit_crop_to_aspect(
                         crop,
-                        intent.aspect_ratio.value,
+                        intent.resolved_aspect_ratio,
                         width,
                         height,
                     ),

@@ -1,25 +1,42 @@
-import { FileImage, LockKeyhole, UploadCloud, X } from "lucide-react";
+import { BookOpen, FileImage, LoaderCircle, LockKeyhole, Play, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AnalysisIntent, AspectRatio, SceneType } from "../types";
+import { loadAuthorizedDemoFile } from "../lib/demo";
+import {
+  createAnalysisIntent,
+  isCustomRatioValid,
+  PUBLICATION_PRESETS,
+} from "../lib/publishing";
+import type { AnalysisIntent, OutputTemplate, RunProvenance, SceneType } from "../types";
 
 interface Props {
   accessCode: string;
   onAccessCodeChange: (value: string) => void;
-  onSubmit: (file: File, intent: AnalysisIntent) => Promise<void>;
+  onSubmit: (file: File, intent: AnalysisIntent, provenance: RunProvenance) => Promise<void>;
+  onOpenPregeneratedDemo: (intent: AnalysisIntent) => void;
   busy: boolean;
 }
 
 const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_BYTES = 20 * 1024 * 1024;
 
-export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: Props) {
+export function UploadPanel({
+  accessCode,
+  onAccessCodeChange,
+  onSubmit,
+  onOpenPregeneratedDemo,
+  busy,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [scene, setScene] = useState<SceneType>("general");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("free");
+  const [outputTemplate, setOutputTemplate] = useState<OutputTemplate>("freeform");
+  const [customRatioWidth, setCustomRatioWidth] = useState(4);
+  const [customRatioHeight, setCustomRatioHeight] = useState(3);
+  const [sampleLoaded, setSampleLoaded] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
 
   useEffect(() => {
     if (!file) {
@@ -31,7 +48,7 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  const choose = (candidate?: File) => {
+  const choose = (candidate?: File, fromDemo = false) => {
     if (!candidate) return;
     if (!ACCEPTED.has(candidate.type)) {
       setError("请选择 JPEG、PNG 或 WebP 图片");
@@ -43,6 +60,29 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
     }
     setError("");
     setFile(candidate);
+    setSampleLoaded(fromDemo);
+  };
+
+  const customRatioValid = outputTemplate !== "custom" || isCustomRatioValid({
+    width: customRatioWidth,
+    height: customRatioHeight,
+  });
+  const intent = createAnalysisIntent(
+    scene,
+    outputTemplate,
+    { width: customRatioWidth, height: customRatioHeight },
+  );
+
+  const loadRealtimeSample = async () => {
+    setSampleLoading(true);
+    setError("");
+    try {
+      choose(await loadAuthorizedDemoFile(), true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "演示样例加载失败");
+    } finally {
+      setSampleLoading(false);
+    }
   };
 
   return (
@@ -68,6 +108,34 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
           </div>
           <FileImage aria-hidden="true" size={24} />
         </div>
+
+        <section className="demo-entry" aria-labelledby="demo-entry-heading">
+          <div>
+            <strong id="demo-entry-heading">答辩演示入口</strong>
+            <span>仓库自制合成样例，明确区分实时处理与预生成导览。</span>
+          </div>
+          <div className="demo-entry-actions">
+            <button
+              type="button"
+              className="demo-button"
+              disabled={busy || sampleLoading}
+              onClick={loadRealtimeSample}
+            >
+              {sampleLoading
+                ? <LoaderCircle className="spin" aria-hidden="true" size={16} />
+                : <Play aria-hidden="true" size={16} />}
+              载入实时样例
+            </button>
+            <button
+              type="button"
+              className="demo-button"
+              disabled={busy || !customRatioValid}
+              onClick={() => onOpenPregeneratedDemo(intent)}
+            >
+              <BookOpen aria-hidden="true" size={16} />预生成导览
+            </button>
+          </div>
+        </section>
 
         <button
           type="button"
@@ -105,6 +173,7 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
             className="clear-file"
             onClick={() => {
               setFile(null);
+              setSampleLoaded(false);
               if (inputRef.current) inputRef.current.value = "";
             }}
           >
@@ -123,16 +192,59 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
               <option value="social">社交媒体</option>
             </select>
           </label>
-          <label>成片比例
-            <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
-              <option value="free">自由比例</option>
-              <option value="1:1">1:1 方形</option>
-              <option value="4:5">4:5 竖图</option>
-              <option value="3:4">3:4 竖图</option>
-              <option value="16:9">16:9 横图</option>
+          <label>发布模板
+            <select
+              value={outputTemplate}
+              onChange={(event) => setOutputTemplate(event.target.value as OutputTemplate)}
+            >
+              {PUBLICATION_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name} · {preset.ratioLabel}
+                </option>
+              ))}
             </select>
           </label>
         </fieldset>
+
+        <p className="template-description">
+          {PUBLICATION_PRESETS.find((preset) => preset.id === outputTemplate)?.description}
+        </p>
+
+        {outputTemplate === "custom" && (
+          <fieldset className="custom-ratio-fieldset">
+            <legend>自定义宽高比</legend>
+            <label htmlFor="custom-ratio-width">宽
+              <input
+                id="custom-ratio-width"
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="100"
+                step="1"
+                value={customRatioWidth}
+                onChange={(event) => setCustomRatioWidth(Number(event.target.value))}
+              />
+            </label>
+            <span aria-hidden="true">:</span>
+            <label htmlFor="custom-ratio-height">高
+              <input
+                id="custom-ratio-height"
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="100"
+                step="1"
+                value={customRatioHeight}
+                onChange={(event) => setCustomRatioHeight(Number(event.target.value))}
+              />
+            </label>
+            {!customRatioValid && (
+              <p className="field-error" role="alert">
+                宽和高需为 1 至 100 的整数，比例在 1:10 至 10:1 之间
+              </p>
+            )}
+          </fieldset>
+        )}
 
         <label className="access-field">
           <span><LockKeyhole aria-hidden="true" size={16} />演示访问码</span>
@@ -149,11 +261,15 @@ export function UploadPanel({ accessCode, onAccessCodeChange, onSubmit, busy }: 
         <button
           type="button"
           className="primary-button"
-          disabled={!file || busy}
-          onClick={() => file && onSubmit(file, { scene, aspect_ratio: aspectRatio })}
+          disabled={!file || busy || !customRatioValid}
+          onClick={() => file && onSubmit(
+            file,
+            intent,
+            sampleLoaded ? "authorized_realtime" : "upload",
+          )}
         >
           <ScanIcon />
-          {busy ? "正在提交" : "开始美学分析"}
+          {busy ? "正在提交" : sampleLoaded ? "实时分析演示样例" : "开始美学分析"}
         </button>
       </section>
     </main>

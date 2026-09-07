@@ -17,6 +17,7 @@ htmlcov/
 
 # JavaScript
 node_modules/
+/.pnpm-store/
 .next/
 .nuxt/
 dist/

@@ -6,9 +6,10 @@ interface Props {
   report: AestheticReport | null;
   adjusted: boolean;
   manualOnly: boolean;
+  source?: "pregenerated" | "mock" | "model";
 }
 
-export function ReportPanel({ report, adjusted, manualOnly }: Props) {
+export function ReportPanel({ report, adjusted, manualOnly, source = "model" }: Props) {
   const isChinese = report?.language === "zh-CN";
   const translated = report?.language === "zh-CN" && report.translation_provider === "deepseek";
 
@@ -19,20 +20,30 @@ export function ReportPanel({ report, adjusted, manualOnly }: Props) {
           <p className="eyebrow">
             {manualOnly
               ? "Manual crop"
+              : source === "pregenerated"
+                ? "预生成示例报告"
+                : source === "mock"
+                  ? "Mock 示例报告"
               : translated
                 ? "Venus 分析 · DeepSeek 翻译"
                 : isChinese
-                  ? "AI 示例分析"
+                  ? "Venus 分析"
                   : "Venus 原始分析"}
           </p>
           <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : "画面分析"}</h2>
-          {!manualOnly && translated && (
+          {!manualOnly && source === "pregenerated" && (
+            <p className="report-language-note">固定示例报告，没有调用当前模型。</p>
+          )}
+          {!manualOnly && source === "mock" && (
+            <p className="report-language-note">当前为 Mock 后端生成的示例报告。</p>
+          )}
+          {!manualOnly && source === "model" && translated && (
             <p className="report-language-note">报告由 Venus 生成，并经 DeepSeek 翻译为简体中文。</p>
           )}
-          {!manualOnly && isChinese && !translated && (
+          {!manualOnly && source === "model" && isChinese && !translated && (
             <p className="report-language-note">当前为简体中文报告。</p>
           )}
-          {!manualOnly && report && !isChinese && (
+          {!manualOnly && source === "model" && report && !isChinese && (
             <p className="report-language-note">翻译服务暂不可用，当前显示 Venus 英文原文。</p>
           )}
         </div>
@@ -51,7 +62,7 @@ export function ReportPanel({ report, adjusted, manualOnly }: Props) {
       {!manualOnly && adjusted && (
         <div className="adjusted-note">
           <CircleAlert size={18} aria-hidden="true" />
-          <span>画面已由你调整；当前报告仍解释 AI 初始分析，最终构图由你确认。</span>
+          <span>当前成片已由你选择或调整；报告仍解释初始方案，最终构图由你确认。</span>
         </div>
       )}
 

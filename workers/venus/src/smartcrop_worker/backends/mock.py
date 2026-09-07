@@ -34,7 +34,7 @@ class MockBackend:
         candidates = [
             CropCandidate(
                 id=candidate_id,
-                crop=fit_crop_to_aspect(box, intent.aspect_ratio.value, width, height),
+                crop=fit_crop_to_aspect(box, intent.resolved_aspect_ratio, width, height),
             )
             for candidate_id, box in candidate_boxes
         ]

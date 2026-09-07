@@ -89,19 +89,48 @@ def save_preview(decoded: DecodedImage, target_dir: Path, max_edge: int = 1600) 
     return path
 
 
+def crop_pixel_bounds(
+    image_width: int,
+    image_height: int,
+    crop: CropBox,
+) -> tuple[int, int, int, int]:
+    x1 = round(crop.x * image_width)
+    y1 = round(crop.y * image_height)
+    x2 = round((crop.x + crop.width) * image_width)
+    y2 = round((crop.y + crop.height) * image_height)
+    x1 = max(0, min(x1, image_width - 1))
+    y1 = max(0, min(y1, image_height - 1))
+    x2 = max(x1 + 1, min(x2, image_width))
+    y2 = max(y1 + 1, min(y2, image_height))
+    return x1, y1, x2, y2
+
+
+def crop_pixel_size(image_width: int, image_height: int, crop: CropBox) -> tuple[int, int]:
+    x1, y1, x2, y2 = crop_pixel_bounds(image_width, image_height, crop)
+    return x2 - x1, y2 - y1
+
+
+def crop_matches_ratio(
+    image_width: int,
+    image_height: int,
+    crop: CropBox,
+    ratio: tuple[int, int] | None,
+) -> bool:
+    if ratio is None:
+        return True
+    pixel_width, pixel_height = crop_pixel_size(image_width, image_height, crop)
+    ratio_width, ratio_height = ratio
+    return abs(pixel_width * ratio_height - pixel_height * ratio_width) <= (
+        ratio_width + ratio_height
+    )
+
+
 def crop_original(original_path: Path, crop: CropBox, target_path: Path | None = None) -> Path:
     with Image.open(original_path) as opened:
         opened.load()
         image = opened.copy()
 
-    x1 = round(crop.x * image.width)
-    y1 = round(crop.y * image.height)
-    x2 = round((crop.x + crop.width) * image.width)
-    y2 = round((crop.y + crop.height) * image.height)
-    x1 = max(0, min(x1, image.width - 1))
-    y1 = max(0, min(y1, image.height - 1))
-    x2 = max(x1 + 1, min(x2, image.width))
-    y2 = max(y1 + 1, min(y2, image.height))
+    x1, y1, x2, y2 = crop_pixel_bounds(image.width, image.height, crop)
     result = image.crop((x1, y1, x2, y2))
 
     has_alpha = _has_alpha(result)

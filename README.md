@@ -15,8 +15,12 @@ SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端�
 - JPEG / PNG / WebP，单图最大 20 MB、50 MP；
 - AI 裁剪框可拖动、四角缩放及键盘微调；
 - 场景与成片比例意图、三种策略候选及裁剪比例锁定；
+- 头像、社交封面、商品主图、演示文稿配图和自定义比例发布目标；
 - 当前方案突出显示，其他构图方向按需展开；
-- 包含人工选择来源、最终裁剪与初始报告的 JSON 方案导出；
+- 三分线、中心线、对角线和安全区域构图辅助；
+- 保留面积、原始尺寸、预计输出、比例状态和处理耗时客观面板；
+- 系统默认建议与人工确认分开记录，可保存选择依据并由服务端导出 schema `1.2` 可追溯方案；
+- 仓库自制授权样例的实时演示与明确标注的预生成导览；
 - 最终裁剪由服务器基于规范化原图生成；
 - AI 失败时可进入明确标注的纯手动模式，不伪造报告；
 - 任务与图片 1 小时后清理，无历史页；
@@ -45,11 +49,16 @@ docs/              产品、架构、设计与 ADR
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-pnpm --dir apps/web install
+pnpm --dir apps/web install --force
 pnpm --dir apps/web build
 Copy-Item .env.example .env
 .\.venv\Scripts\python.exe scripts/dev.py
 ```
+
+项目将 pnpm 内容寻址存储固定在仓库根目录的 `.pnpm-store`（pnpm 会在其中创建版本目录）。
+后续安装直接运行 `pnpm --dir apps/web install` 即可。如果已有 `node_modules` 仍链接到默认的
+`D:\.pnpm-store`，先删除或移走 `apps/web/node_modules`，再重新安装；旧的根目录存储不会自动删除，
+并且可能被 D 盘上的其他项目共用，确认没有其他项目依赖后再手动清理。
 
 打开 `http://127.0.0.1:8000`。默认 Mock 后端只用于 UI、契约和部署冒烟测试，不能作为真实 Venus 模型验收证据。
 

@@ -38,4 +38,19 @@ describe("CandidatePanel", () => {
 
     expect(markup).toContain("当前方案：平衡构图");
   });
+
+  it("does not attribute fixed pregenerated candidates to AI", () => {
+    const markup = renderToStaticMarkup(
+      <CandidatePanel
+        imageUrl="data:image/png;base64,AA=="
+        candidates={candidates}
+        selectedCandidateId="balanced"
+        pregenerated
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("本地固定示例，未调用模型");
+    expect(markup).not.toContain("AI 已按此偏好独立生成");
+  });
 });

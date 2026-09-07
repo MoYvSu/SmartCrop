@@ -14,10 +14,17 @@ interface Props {
   imageUrl: string;
   candidates: CropCandidate[];
   selectedCandidateId: CropCandidate["id"] | null;
+  pregenerated?: boolean;
   onSelect: (candidate: CropCandidate) => void;
 }
 
-export function CandidatePanel({ imageUrl, candidates, selectedCandidateId, onSelect }: Props) {
+export function CandidatePanel({
+  imageUrl,
+  candidates,
+  selectedCandidateId,
+  pregenerated = false,
+  onSelect,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   if (!candidates.length) return null;
 
@@ -33,7 +40,7 @@ export function CandidatePanel({ imageUrl, candidates, selectedCandidateId, onSe
           <p className="eyebrow">Composition directions</p>
           <h2 id="candidate-heading">先选方向，再做精修</h2>
         </div>
-        <span>AI 提供方向，由你决定</span>
+        <span>{pregenerated ? "固定示例方向，由你决定" : "AI 提供方向，由你决定"}</span>
       </div>
 
       <article className="candidate-current" aria-label={`当前方案：${selectedCopy.name}`}>
@@ -43,7 +50,10 @@ export function CandidatePanel({ imageUrl, candidates, selectedCandidateId, onSe
         <span className="candidate-copy">
           <span className="candidate-state"><Check size={14} aria-hidden="true" />当前方案</span>
           <strong><selectedCopy.Icon size={17} aria-hidden="true" />{selectedCopy.name}</strong>
-          <small>{selectedCopy.note}。AI 已按此偏好独立生成。</small>
+          <small>
+            {selectedCopy.note}。
+            {pregenerated ? "本地固定示例，未调用模型。" : "AI 已按此偏好独立生成。"}
+          </small>
         </span>
       </article>
 
