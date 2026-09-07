@@ -9,7 +9,7 @@ interface Props {
 
 export function ProcessingPanel({ job, onReset }: Props) {
   return (
-    <main className="processing-shell" id="main-content" aria-live="polite">
+    <main className="processing-shell" id="main-content" tabIndex={-1} aria-live="polite">
       <section className="processing-card">
         <div className="processing-mark"><Layers3 aria-hidden="true" size={32} /></div>
         <p className="eyebrow">任务 {job.id.slice(0, 8)}</p>

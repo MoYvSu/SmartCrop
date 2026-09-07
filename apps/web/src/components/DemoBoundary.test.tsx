@@ -38,7 +38,7 @@ describe("pregenerated demo boundaries", () => {
       />,
     );
 
-    expect(reportMarkup).toContain("预生成示例报告");
+    expect(reportMarkup).toContain("使用样例");
     expect(reportMarkup).toContain("没有调用当前模型");
     expect(reportMarkup).not.toContain("AI 示例分析");
     expect(toolsMarkup).toContain("后端处理耗时");

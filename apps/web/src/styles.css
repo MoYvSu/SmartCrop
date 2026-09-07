@@ -31,7 +31,7 @@
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body {
-  min-width: 900px;
+  min-width: 0;
   background:
     radial-gradient(circle at 82% 0%, rgba(255, 255, 255, 0.9), transparent 34rem),
     var(--background-deep);
@@ -103,23 +103,13 @@ h2 { font-size: 24px; }
 .upload-card { padding: 28px; border-radius: var(--radius-lg); }
 .section-heading, .workspace-toolbar, .image-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading > svg { color: var(--accent); }
-.demo-entry {
-  margin-top: 20px; padding: 12px; border: 1px solid var(--border); border-radius: 12px;
-  display: grid; gap: 11px; background: rgba(82, 103, 173, 0.045);
+.sample-link {
+  min-height: 44px; padding: 0 2px; border: 0; display: inline-flex; align-items: center; gap: 7px;
+  color: var(--muted-foreground); background: transparent; font-size: 12px; font-weight: 700;
+  transition: color 180ms ease;
 }
-.demo-entry > div:first-child { display: grid; gap: 2px; }
-.demo-entry strong { font-size: 13px; }
-.demo-entry span { color: var(--muted-foreground); font-size: 11px; line-height: 1.5; }
-.demo-entry-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.demo-button {
-  min-height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  color: var(--foreground); background: rgba(255, 255, 255, 0.58); font-size: 12px; font-weight: 700;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
-}
-.demo-button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--muted); }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.sample-link:hover:not(:disabled) { color: var(--foreground); }
+.sample-link svg { color: var(--accent); }
 .drop-zone {
   width: 100%; min-height: 210px; margin: 26px 0 12px; padding: 28px; border: 1px dashed var(--border-strong);
   border-radius: var(--radius-md); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
@@ -256,8 +246,9 @@ h2 { font-size: 24px; }
 .image-card-heading small { color: var(--muted-foreground); }
 .change-badge { padding: 4px 8px; border-radius: 999px; color: #79501a; background: rgba(183, 127, 51, 0.11); font-size: 11px; }
 .icon-text-button { font-size: 12px; }
-.crop-stage { position: relative; width: 100%; max-height: calc(100vh - 245px); overflow: hidden; display: grid; place-items: center; background: var(--image-stage); user-select: none; }
-.crop-stage > img { display: block; width: 100%; height: auto; max-height: calc(100vh - 245px); object-fit: contain; }
+.crop-stage-shell { width: 100%; overflow: hidden; display: grid; place-items: center; background: var(--image-stage); }
+.crop-stage { position: relative; max-width: 100%; overflow: hidden; flex: none; user-select: none; }
+.crop-stage > img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .crop-shade { position: absolute; inset: 0; pointer-events: none; background: rgba(0,0,0,0.48); }
 .crop-box { position: absolute; border: 2px solid #8ea4ef; box-shadow: 0 0 0 9999px rgba(0,0,0,0.02), 0 0 24px rgba(82, 103, 173, 0.28); cursor: move; touch-action: none; }
 .crop-guides, .crop-guides > span, .crop-guides i, .crop-guides svg {
@@ -338,15 +329,11 @@ h2 { font-size: 24px; }
 }
 
 @media (max-width: 980px) {
-  .comparison-grid { grid-template-columns: 1fr; }
-  .crop-stage, .crop-stage > img, .preview-stage { max-height: none; }
-  .crop-preview-canvas { max-height: 560px; }
   .workspace-toolbar { align-items: flex-start; }
   .composition-tools-heading { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 899px) {
-  body { min-width: 0; }
   .desktop-app { display: none; }
   .mobile-unsupported { min-height: 100vh; padding: 32px; display: grid; place-content: center; justify-items: center; text-align: center; background: var(--background-deep); }
   .mobile-unsupported > div { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; color: var(--accent); background: rgba(82, 103, 173, 0.1); }

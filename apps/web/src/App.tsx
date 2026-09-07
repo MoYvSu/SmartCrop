@@ -1,4 +1,4 @@
-import { Download, FileJson, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Download, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
@@ -12,7 +12,6 @@ import { SelectionReasonPanel } from "./components/SelectionReasonPanel";
 import { UploadPanel } from "./components/UploadPanel";
 import { cropEquals, fitCropToIntent, normalizedAspectRatio } from "./lib/crop";
 import { createPregeneratedJob, DEMO_IMAGE_URL, downloadDemoCrop } from "./lib/demo";
-import { getCropMetrics } from "./lib/metrics";
 import type {
   AnalysisIntent,
   CompositionGuide,
@@ -30,18 +29,6 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function downloadJson(payload: object, filename: string): void {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
 export default function App() {
   const [accessCode, setAccessCode] = useState(() => sessionStorage.getItem("smartcrop-access") || "");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -56,6 +43,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pollToken = useRef(0);
+  const previousPhase = useRef(phase);
 
   useEffect(() => {
     sessionStorage.setItem("smartcrop-access", accessCode);
@@ -64,6 +52,16 @@ export default function App() {
   useEffect(() => () => {
     if (sourceUrl.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
   }, [sourceUrl]);
+
+  useEffect(() => {
+    if (previousPhase.current === phase) return undefined;
+    previousPhase.current = phase;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0 });
+      document.getElementById("main-content")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [phase]);
 
   const reset = () => {
     pollToken.current += 1;
@@ -239,61 +237,20 @@ export default function App() {
     }
   };
 
-  const downloadPlan = async () => {
-    if (!job) return;
-    try {
-      let current = job;
-      if (hasPendingChanges) {
-        const updated = await saveCrop();
-        if (!updated) return;
-        current = updated;
-      }
-      if (provenance !== "pregenerated" && current.artifacts.plan) {
-        await downloadArtifact(
-          current.artifacts.plan,
-          accessCode,
-          `SmartCrop_${current.id.slice(0, 8)}_plan`,
-        );
-        return;
-      }
-      const metrics = current.final_crop
-        ? getCropMetrics(
-          current.image_width,
-          current.image_height,
-          current.final_crop,
-          current.intent,
-        )
-        : null;
-      downloadJson({
-        schema_version: "1.2",
-        job_id: current.id,
-        intent: current.intent,
-        selection_mode: current.selection_confirmed ? "human" : "unconfirmed",
-        selection_confirmed: current.selection_confirmed,
-        selected_candidate_id: current.selected_candidate_id,
-        selection_reasons: current.selection_reasons,
-        selection_note: current.selection_note,
-        manual_adjusted: current.manual_adjusted,
-        processing_duration_ms: current.processing_duration_ms,
-        final_crop: current.final_crop,
-        initial_report: current.report,
-        capability_status: current.capability_status,
-        provenance: "pregenerated",
-        output: metrics && {
-          source_size: { width: current.image_width, height: current.image_height },
-          crop_size: { width: metrics.outputWidth, height: metrics.outputHeight },
-          requested_ratio: metrics.requestedRatio,
-          ratio_compliant: metrics.ratioCompliant,
-        },
-      }, `SmartCrop_${current.id.slice(0, 8)}_plan.json`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "方案导出失败");
+  const selectCandidate = (candidate: CropCandidate): boolean => {
+    const currentCropIsGenerated = Boolean(
+      draftCrop && job?.candidates.some((item) => cropEquals(item.crop, draftCrop)),
+    );
+    if (
+      draftCrop
+      && !currentCropIsGenerated
+      && !window.confirm("切换构图方向会替换你在画布上的当前调整。是否继续？")
+    ) {
+      return false;
     }
-  };
-
-  const selectCandidate = (candidate: CropCandidate) => {
     setDraftCrop(candidate.crop);
     setSelectedCandidateId(candidate.id);
+    return true;
   };
 
   const restoreAiSuggestion = () => {
@@ -362,7 +319,7 @@ export default function App() {
         {phase === "processing" && job && <ProcessingPanel job={job} onReset={reset} />}
 
         {phase === "result" && job && draftCrop && sourceUrl && (
-          <main className="result-shell" id="main-content">
+          <main className="result-shell" id="main-content" tabIndex={-1}>
             <section className="workspace-panel" aria-labelledby="workspace-heading">
               <div className="workspace-toolbar">
                 <div>
@@ -377,14 +334,6 @@ export default function App() {
                     <Save aria-hidden="true" size={18} />
                     {confirmationPending ? "确认当前方案" : "应用裁剪"}
                   </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy || (provenance !== "pregenerated" && !job.artifacts.plan)}
-                    onClick={downloadPlan}
-                  >
-                    <FileJson aria-hidden="true" size={18} />导出方案
-                  </button>
                   <button type="button" className="primary-button compact" disabled={busy} onClick={download}>
                     <Download aria-hidden="true" size={18} />下载裁剪图
                   </button>
@@ -394,44 +343,17 @@ export default function App() {
               <div className={`capability-banner status-${job.capability_status}`} role="status">
                 <strong>
                   {provenance === "pregenerated"
-                    ? "预生成演示样例"
-                    : provenance === "authorized_realtime"
-                      ? job.capability_status === "mock"
-                        ? "授权样例 · Mock 实时处理"
-                        : "授权样例 · 实时处理"
-                      : job.capability_status === "mock" ? "Mock 演示模式" : "AI 构图建议"}
+                    ? "使用样例 · 固定展示"
+                    : job.capability_status === "mock" ? "Mock 演示模式" : "AI 构图建议"}
                 </strong>
                 <span>
                   {provenance === "pregenerated"
-                    ? "本结果用于离线导览，没有调用当前模型。"
-                    : provenance === "authorized_realtime"
-                      ? job.capability_status === "mock"
-                        ? "当前 Mock 后端已实际处理仓库自制合成样例，仅验证功能链路。"
-                        : "当前后端已实际处理仓库自制合成样例。"
-                      : job.capability_status === "mock"
-                        ? "当前结果用于验证交互与制品链路。"
-                        : "三个方案按不同构图偏好分别生成，最终方向由你选择。"}
+                    ? "这是用于了解操作流程的固定结果，没有调用当前模型。"
+                    : job.capability_status === "mock"
+                      ? "当前结果用于验证交互与制品链路。"
+                      : "三个方案按不同构图偏好分别生成，最终方向由你选择。"}
                 </span>
               </div>
-
-              <CandidatePanel
-                imageUrl={sourceUrl}
-                candidates={job.candidates}
-                selectedCandidateId={selectedCandidateId}
-                pregenerated={provenance === "pregenerated"}
-                onSelect={selectCandidate}
-              />
-
-              <CompositionTools
-                crop={draftCrop}
-                imageWidth={job.image_width}
-                imageHeight={job.image_height}
-                intent={job.intent}
-                guides={guides}
-                processingDurationMs={job.processing_duration_ms}
-                pregenerated={provenance === "pregenerated"}
-                onToggleGuide={toggleGuide}
-              />
 
               <div className="comparison-grid">
                 <article className="image-card">
@@ -441,6 +363,8 @@ export default function App() {
                   </div>
                   <CropEditor
                     imageUrl={sourceUrl}
+                    imageWidth={job.image_width}
+                    imageHeight={job.image_height}
                     crop={draftCrop}
                     onChange={setDraftCrop}
                     aspectRatio={aspectRatio}
@@ -463,6 +387,26 @@ export default function App() {
                   <div className="preview-stage"><CropPreview imageUrl={sourceUrl} crop={draftCrop} /></div>
                 </article>
               </div>
+
+              <CandidatePanel
+                imageUrl={sourceUrl}
+                candidates={job.candidates}
+                selectedCandidateId={selectedCandidateId}
+                pregenerated={provenance === "pregenerated"}
+                onSelect={selectCandidate}
+              />
+
+              <CompositionTools
+                crop={draftCrop}
+                imageWidth={job.image_width}
+                imageHeight={job.image_height}
+                intent={job.intent}
+                guides={guides}
+                processingDurationMs={job.processing_duration_ms}
+                pregenerated={provenance === "pregenerated"}
+                onToggleGuide={toggleGuide}
+              />
+
               <SelectionReasonPanel
                 reasons={selectionReasons}
                 note={selectionNote}

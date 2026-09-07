@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
 import { clamp, fitCropToAspect, MIN_CROP_SIZE, moveCrop } from "../lib/crop";
@@ -17,6 +17,8 @@ interface Interaction {
 
 interface Props {
   imageUrl: string;
+  imageWidth: number;
+  imageHeight: number;
   crop: CropBox;
   onChange: (crop: CropBox) => void;
   aspectRatio?: number | null;
@@ -29,6 +31,27 @@ const handleLabels: Record<Exclude<Handle, "move">, string> = {
   sw: "调整左下角",
   se: "调整右下角",
 };
+
+interface StageSize {
+  width: number;
+  height: number;
+}
+
+export function fitStageSize(
+  imageWidth: number,
+  imageHeight: number,
+  maxWidth: number,
+  maxHeight: number,
+): StageSize {
+  const scale = Math.min(
+    Math.max(maxWidth, 1) / Math.max(imageWidth, 1),
+    Math.max(maxHeight, 1) / Math.max(imageHeight, 1),
+  );
+  return {
+    width: Math.max(imageWidth, 1) * scale,
+    height: Math.max(imageHeight, 1) * scale,
+  };
+}
 
 function resizeCrop(start: CropBox, handle: Handle, dx: number, dy: number): CropBox {
   if (handle === "move") return moveCrop(start, dx, dy);
@@ -48,13 +71,46 @@ function resizeCrop(start: CropBox, handle: Handle, dx: number, dy: number): Cro
 
 export function CropEditor({
   imageUrl,
+  imageWidth,
+  imageHeight,
   crop,
   onChange,
   aspectRatio = null,
   guides = ["thirds"],
 }: Props) {
+  const shellRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
+  const [stageSize, setStageSize] = useState<StageSize | null>(null);
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return undefined;
+    const resize = () => {
+      if (!shell.clientWidth) return;
+      const next = fitStageSize(
+        imageWidth,
+        imageHeight,
+        shell.clientWidth,
+        Math.max(240, window.innerHeight - 245),
+      );
+      setStageSize((current) => (
+        current
+        && Math.abs(current.width - next.width) < 0.5
+        && Math.abs(current.height - next.height) < 0.5
+          ? current
+          : next
+      ));
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(shell);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [imageHeight, imageWidth]);
 
   const startInteraction = useCallback(
     (handle: Handle, event: ReactPointerEvent) => {
@@ -118,57 +174,67 @@ export function CropEditor({
   };
 
   return (
-    <div className="crop-stage" ref={containerRef}>
-      <img src={imageUrl} alt="待裁剪原图" draggable={false} />
-      <div className="crop-shade" aria-hidden="true" />
+    <div className="crop-stage-shell" ref={shellRef}>
       <div
-        className={`crop-box ${interaction ? "is-dragging" : ""}`}
+        className="crop-stage"
+        ref={containerRef}
         style={{
-          left: `${crop.x * 100}%`,
-          top: `${crop.y * 100}%`,
-          width: `${crop.width * 100}%`,
-          height: `${crop.height * 100}%`,
+          width: stageSize?.width ?? "100%",
+          height: stageSize?.height,
+          aspectRatio: `${imageWidth} / ${imageHeight}`,
         }}
-        role="group"
-        aria-label="裁剪框。可拖动位置，方向键微调，按住 Shift 加速。"
-        tabIndex={0}
-        onPointerDown={(event) => startInteraction("move", event)}
-        onKeyDown={onKeyDown}
       >
-        <span className="crop-guides" aria-hidden="true">
-          {guides.includes("thirds") && (
-            <span className="thirds-guide">
-              <i className="guide-vertical guide-first" />
-              <i className="guide-vertical guide-second" />
-              <i className="guide-horizontal guide-first" />
-              <i className="guide-horizontal guide-second" />
-            </span>
-          )}
-          {guides.includes("center") && (
-            <span className="center-guide">
-              <i className="guide-vertical" />
-              <i className="guide-horizontal" />
-            </span>
-          )}
-          {guides.includes("diagonal") && (
-            <svg className="diagonal-guide" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <path d="M0 0 L100 100 M100 0 L0 100" />
-            </svg>
-          )}
-          {guides.includes("safe") && <span className="safe-area-guide" />}
-        </span>
-        {(["nw", "ne", "sw", "se"] as const).map((handle) => (
-          <button
-            type="button"
-            key={handle}
-            className={`crop-handle crop-handle-${handle}`}
-            aria-label={handleLabels[handle]}
-            onPointerDown={(event) => startInteraction(handle, event)}
-            onKeyDown={(event) => onHandleKeyDown(handle, event)}
-          >
-            <span aria-hidden="true" />
-          </button>
-        ))}
+        <img src={imageUrl} alt="待裁剪原图" draggable={false} />
+        <div className="crop-shade" aria-hidden="true" />
+        <div
+          className={`crop-box ${interaction ? "is-dragging" : ""}`}
+          style={{
+            left: `${crop.x * 100}%`,
+            top: `${crop.y * 100}%`,
+            width: `${crop.width * 100}%`,
+            height: `${crop.height * 100}%`,
+          }}
+          role="group"
+          aria-label="裁剪框。可拖动位置，方向键微调，按住 Shift 加速。"
+          tabIndex={0}
+          onPointerDown={(event) => startInteraction("move", event)}
+          onKeyDown={onKeyDown}
+        >
+          <span className="crop-guides" aria-hidden="true">
+            {guides.includes("thirds") && (
+              <span className="thirds-guide">
+                <i className="guide-vertical guide-first" />
+                <i className="guide-vertical guide-second" />
+                <i className="guide-horizontal guide-first" />
+                <i className="guide-horizontal guide-second" />
+              </span>
+            )}
+            {guides.includes("center") && (
+              <span className="center-guide">
+                <i className="guide-vertical" />
+                <i className="guide-horizontal" />
+              </span>
+            )}
+            {guides.includes("diagonal") && (
+              <svg className="diagonal-guide" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M0 0 L100 100 M100 0 L0 100" />
+              </svg>
+            )}
+            {guides.includes("safe") && <span className="safe-area-guide" />}
+          </span>
+          {(["nw", "ne", "sw", "se"] as const).map((handle) => (
+            <button
+              type="button"
+              key={handle}
+              className={`crop-handle crop-handle-${handle}`}
+              aria-label={handleLabels[handle]}
+              onPointerDown={(event) => startInteraction(handle, event)}
+              onKeyDown={(event) => onHandleKeyDown(handle, event)}
+            >
+              <span aria-hidden="true" />
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

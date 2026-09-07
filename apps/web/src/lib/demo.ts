@@ -26,7 +26,7 @@ export function createPregeneratedJob(intent: AnalysisIntent): JobResponse {
     id: "demo-pregenerated",
     status: "succeeded",
     queue_position: null,
-    progress_message: "预生成演示已载入",
+    progress_message: "使用样例已载入",
     created_at: new Date(now).toISOString(),
     expires_at: new Date(now + 60 * 60 * 1000).toISOString(),
     image_width: DEMO_IMAGE_WIDTH,
@@ -46,44 +46,17 @@ export function createPregeneratedJob(intent: AnalysisIntent): JobResponse {
     selection_note: null,
     processing_duration_ms: null,
     report: {
-      overview: "合成静物场景包含明确主体、环境窗口和可调节留白，适合演示构图选择。",
+      overview: "合成静物场景包含明确主体、环境窗口和可调节留白，适合了解构图选择。",
       strengths: ["主体与背景形成清楚层次。", "横向空间可用于比较紧凑与叙事构图。"],
       issues: ["左侧窗框和右侧花器之间的视觉权重需要按用途取舍。"],
-      crop_rationale: "三个预生成框分别展示平衡、主体优先和环境叙事方向，不代表自动优劣排序。",
-      shooting_tips: ["实时演示时可使用同一样例验证当前后端链路。"],
+      crop_rationale: "三个固定示例框分别展示平衡、主体优先和环境叙事方向，不代表自动优劣排序。",
+      shooting_tips: ["上传自己的图片后，可以沿用同样的选择与精修流程。"],
       language: "zh-CN",
       translation_provider: null,
     },
     artifacts: { preview: null, crop: null, plan: null },
     error: null,
   };
-}
-
-export async function loadAuthorizedDemoFile(): Promise<File> {
-  const response = await fetch(DEMO_IMAGE_URL);
-  if (!response.ok) throw new Error("演示样例加载失败");
-  const source = await response.blob();
-  const sourceUrl = URL.createObjectURL(source);
-  try {
-    const image = new Image();
-    image.src = sourceUrl;
-    await image.decode();
-    const canvas = document.createElement("canvas");
-    canvas.width = DEMO_IMAGE_WIDTH;
-    canvas.height = DEMO_IMAGE_HEIGHT;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("浏览器不支持演示样例转换");
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const png = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("演示样例转换失败"))),
-        "image/png",
-      );
-    });
-    return new File([png], "SmartCrop-authorized-demo.png", { type: "image/png" });
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
 }
 
 export async function downloadDemoCrop(
@@ -108,11 +81,11 @@ export async function downloadDemoCrop(
   canvas.width = x2 - x1;
   canvas.height = y2 - y1;
   const context = canvas.getContext("2d");
-  if (!context) throw new Error("浏览器不支持演示裁剪导出");
+  if (!context) throw new Error("浏览器不支持样例裁剪下载");
   context.drawImage(image, x1, y1, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (result) => (result ? resolve(result) : reject(new Error("演示裁剪导出失败"))),
+      (result) => (result ? resolve(result) : reject(new Error("样例裁剪下载失败"))),
       "image/png",
     );
   });

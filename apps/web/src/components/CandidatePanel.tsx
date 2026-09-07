@@ -15,7 +15,7 @@ interface Props {
   candidates: CropCandidate[];
   selectedCandidateId: CropCandidate["id"] | null;
   pregenerated?: boolean;
-  onSelect: (candidate: CropCandidate) => void;
+  onSelect: (candidate: CropCandidate) => boolean | void;
 }
 
 export function CandidatePanel({
@@ -38,7 +38,7 @@ export function CandidatePanel({
       <div className="candidate-heading">
         <div>
           <p className="eyebrow">Composition directions</p>
-          <h2 id="candidate-heading">先选方向，再做精修</h2>
+          <h2 id="candidate-heading">需要时切换构图方向</h2>
         </div>
         <span>{pregenerated ? "固定示例方向，由你决定" : "AI 提供方向，由你决定"}</span>
       </div>
@@ -77,8 +77,7 @@ export function CandidatePanel({
               key={candidate.id}
               className="candidate-card"
               onClick={() => {
-                onSelect(candidate);
-                setExpanded(false);
+                if (onSelect(candidate) !== false) setExpanded(false);
               }}
             >
               <span className="candidate-preview"><CropPreview imageUrl={imageUrl} crop={candidate.crop} /></span>

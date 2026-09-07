@@ -7,7 +7,6 @@ import shutil
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
@@ -37,7 +36,7 @@ from smartcrop_image_core import (
     save_normalized_original,
     save_preview,
 )
-from smartcrop_runtime import JobRecord, JobStore, Settings
+from smartcrop_runtime import JobRecord, JobStore, Settings, cleanup_expired_jobs
 
 ACCESS_HEADER = "X-SmartCrop-Access"
 
@@ -192,14 +191,6 @@ def _job_response(store: JobStore, record: JobRecord, settings: Settings) -> Job
     )
 
 
-def _remove_job_directory(record: JobRecord, jobs_root: Path) -> None:
-    root = jobs_root.resolve()
-    job_dir = record.input_path.parent.resolve()
-    if job_dir.parent != root:
-        return
-    shutil.rmtree(job_dir, ignore_errors=True)
-
-
 async def _read_upload(file: UploadFile, max_bytes: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
@@ -219,9 +210,7 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
 
     async def cleanup_loop(stop_cleanup: asyncio.Event) -> None:
         while not stop_cleanup.is_set():
-            expired = await asyncio.to_thread(store.pop_expired)
-            for record in expired:
-                await asyncio.to_thread(_remove_job_directory, record, resolved.jobs_dir)
+            await asyncio.to_thread(cleanup_expired_jobs, store, resolved.jobs_dir)
             try:
                 await asyncio.wait_for(stop_cleanup.wait(), timeout=60)
             except TimeoutError:

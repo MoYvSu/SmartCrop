@@ -34,7 +34,7 @@ export function SelectionReasonPanel({
   return (
     <fieldset className="selection-reason-panel">
       <legend><MessageSquareText aria-hidden="true" size={17} />记录选择依据</legend>
-      <p>按需选择一项或多项，内容会随最终方案导出，方便答辩回溯。</p>
+      <p>按需记录本次选择，内容仅随当前任务暂存，本版本不用于模型训练。</p>
       <div className="reason-options">
         {REASONS.map((reason) => (
           <button

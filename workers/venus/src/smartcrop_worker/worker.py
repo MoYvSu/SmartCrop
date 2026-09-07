@@ -1,28 +1,16 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import time
-from pathlib import Path
 
 from smartcrop_contracts import JobMode
 from smartcrop_image_core import crop_original
-from smartcrop_runtime import JobRecord, JobStore, Settings
+from smartcrop_runtime import JobStore, Settings, cleanup_expired_jobs
 
 from .backends import InferenceBackend
 from .translation import ReportTranslator
 
 LOGGER = logging.getLogger("smartcrop.worker")
-
-
-def remove_expired_job_files(records: list[JobRecord], jobs_root: Path) -> None:
-    root = jobs_root.resolve()
-    for record in records:
-        job_dir = record.input_path.parent.resolve()
-        if job_dir.parent != root:
-            LOGGER.error("Refusing to remove unexpected job directory: %s", job_dir)
-            continue
-        shutil.rmtree(job_dir, ignore_errors=True)
 
 
 class Worker:
@@ -40,7 +28,7 @@ class Worker:
 
     def run_once(self) -> bool:
         self.store.expire_stale_running(self.settings.task_timeout_seconds)
-        remove_expired_job_files(self.store.pop_expired(), self.settings.jobs_dir)
+        cleanup_expired_jobs(self.store, self.settings.jobs_dir)
         job = self.store.claim_next()
         if job is None:
             return False

@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from smartcrop_contracts import CropBox, CropCandidate, JobStatus, Report, SelectionReason
-from smartcrop_runtime import JobStore
+from smartcrop_runtime import JobStore, cleanup_expired_jobs
 
 
 def _report() -> Report:
@@ -166,11 +166,12 @@ def test_existing_database_gains_selection_evidence_columns(tmp_path: Path) -> N
     assert record.selection_note is None
 
 
-def test_expired_job_record_is_removed(tmp_path: Path) -> None:
+def test_expired_job_files_are_removed_before_record(tmp_path: Path) -> None:
     store = JobStore(tmp_path / "jobs.sqlite3")
     store.initialize()
-    job_dir = tmp_path / "expired"
-    job_dir.mkdir()
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "expired"
+    job_dir.mkdir(parents=True)
     original = job_dir / "original.jpg"
     preview = job_dir / "preview.jpg"
     original.touch()
@@ -185,7 +186,124 @@ def test_expired_job_record_is_removed(tmp_path: Path) -> None:
         retention_seconds=-1,
     )
 
-    removed = store.pop_expired()
+    removed = cleanup_expired_jobs(store, jobs_root)
 
-    assert [record.id for record in removed] == ["expired"]
+    assert removed == 1
+    assert not job_dir.exists()
+    assert store.get_job("expired") is None
+
+
+def test_expired_job_record_is_retained_when_file_removal_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "expired"
+    job_dir.mkdir(parents=True)
+    original = job_dir / "original.jpg"
+    preview = job_dir / "preview.jpg"
+    original.touch()
+    preview.touch()
+    store.create_job(
+        job_id="expired",
+        input_path=original,
+        preview_path=preview,
+        source_format="JPEG",
+        image_width=800,
+        image_height=600,
+        retention_seconds=-1,
+    )
+
+    def fail_removal(_path: Path) -> None:
+        raise PermissionError("文件仍被占用")
+
+    monkeypatch.setattr("smartcrop_runtime.cleanup.shutil.rmtree", fail_removal)
+
+    assert cleanup_expired_jobs(store, jobs_root) == 0
+    assert job_dir.exists()
+    assert store.get_job("expired") is not None
+
+
+def test_expired_cleanup_retries_after_list_database_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "expired"
+    job_dir.mkdir(parents=True)
+    original = job_dir / "original.jpg"
+    preview = job_dir / "preview.jpg"
+    original.touch()
+    preview.touch()
+    store.create_job(
+        job_id="expired",
+        input_path=original,
+        preview_path=preview,
+        source_format="JPEG",
+        image_width=800,
+        image_height=600,
+        retention_seconds=-1,
+    )
+    list_expired = store.list_expired
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is temporarily locked")
+        return list_expired()
+
+    monkeypatch.setattr(store, "list_expired", fail_once)
+
+    assert cleanup_expired_jobs(store, jobs_root) == 0
+    assert job_dir.exists()
+    assert store.get_job("expired") is not None
+    assert cleanup_expired_jobs(store, jobs_root) == 1
+    assert not job_dir.exists()
+    assert store.get_job("expired") is None
+
+
+def test_expired_cleanup_retries_record_after_delete_database_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "expired"
+    job_dir.mkdir(parents=True)
+    original = job_dir / "original.jpg"
+    preview = job_dir / "preview.jpg"
+    original.touch()
+    preview.touch()
+    store.create_job(
+        job_id="expired",
+        input_path=original,
+        preview_path=preview,
+        source_format="JPEG",
+        image_width=800,
+        image_height=600,
+        retention_seconds=-1,
+    )
+    delete_job = store.delete_job
+    attempts = 0
+
+    def fail_once(job_id: str) -> bool:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is temporarily locked")
+        return delete_job(job_id)
+
+    monkeypatch.setattr(store, "delete_job", fail_once)
+
+    assert cleanup_expired_jobs(store, jobs_root) == 0
+    assert not job_dir.exists()
+    assert store.get_job("expired") is not None
+    assert cleanup_expired_jobs(store, jobs_root) == 1
     assert store.get_job("expired") is None

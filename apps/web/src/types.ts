@@ -14,7 +14,7 @@ export interface CropBox {
 }
 
 export type CompositionGuide = "thirds" | "center" | "diagonal" | "safe";
-export type RunProvenance = "upload" | "authorized_realtime" | "pregenerated";
+export type RunProvenance = "upload" | "pregenerated";
 
 export type SceneType = "general" | "portrait" | "landscape" | "product" | "social";
 export type AspectRatio = "free" | "1:1" | "4:5" | "3:4" | "16:9";

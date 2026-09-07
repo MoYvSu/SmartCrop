@@ -412,19 +412,19 @@ class JobStore:
             )
         return result.rowcount
 
-    def pop_expired(self) -> list[JobRecord]:
+    def list_expired(self) -> list[JobRecord]:
         now = to_iso(utc_now())
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM jobs WHERE expires_at <= ?",
                 (now,),
             ).fetchall()
-            if rows:
-                connection.executemany(
-                    "DELETE FROM jobs WHERE id = ?",
-                    [(row["id"],) for row in rows],
-                )
         return [self._row_to_record(row) for row in rows]
+
+    def delete_job(self, job_id: str) -> bool:
+        with self._connect() as connection:
+            result = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        return result.rowcount == 1
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> JobRecord:

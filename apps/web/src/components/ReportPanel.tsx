@@ -21,7 +21,7 @@ export function ReportPanel({ report, adjusted, manualOnly, source = "model" }: 
             {manualOnly
               ? "Manual crop"
               : source === "pregenerated"
-                ? "预生成示例报告"
+                ? "使用样例"
                 : source === "mock"
                   ? "Mock 示例报告"
               : translated
@@ -32,7 +32,7 @@ export function ReportPanel({ report, adjusted, manualOnly, source = "model" }: 
           </p>
           <h2 id="report-heading">{manualOnly ? "手动裁剪模式" : "画面分析"}</h2>
           {!manualOnly && source === "pregenerated" && (
-            <p className="report-language-note">固定示例报告，没有调用当前模型。</p>
+            <p className="report-language-note">固定说明内容，没有调用当前模型。</p>
           )}
           {!manualOnly && source === "mock" && (
             <p className="report-language-note">当前为 Mock 后端生成的示例报告。</p>
