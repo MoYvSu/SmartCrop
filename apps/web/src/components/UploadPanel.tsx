@@ -1,5 +1,5 @@
 import { BookOpen, LockKeyhole, UploadCloud, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createAnalysisIntent,
   isCustomRatioValid,
@@ -19,6 +19,20 @@ const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_BYTES = 20 * 1024 * 1024;
 const SAMPLE_INTENT = createAnalysisIntent("general", "freeform", { width: 4, height: 3 });
 
+type ClipboardItemLike = Pick<DataTransferItem, "getAsFile" | "kind" | "type">;
+
+export function firstPastedImage(
+  items: ArrayLike<ClipboardItemLike> | null | undefined,
+): File | null {
+  if (!items) return null;
+  for (const item of Array.from(items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file) return file;
+  }
+  return null;
+}
+
 export function UploadPanel({
   accessCode,
   onAccessCodeChange,
@@ -30,6 +44,7 @@ export function UploadPanel({
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
+  const [announcement, setAnnouncement] = useState("");
   const [dragging, setDragging] = useState(false);
   const [scene, setScene] = useState<SceneType>("general");
   const [outputTemplate, setOutputTemplate] = useState<OutputTemplate>("freeform");
@@ -46,24 +61,40 @@ export function UploadPanel({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  const choose = (candidate?: File) => {
+  const choose = useCallback((candidate?: File, source: "picker" | "paste" = "picker") => {
     if (!candidate) return;
     if (!ACCEPTED.has(candidate.type)) {
+      setAnnouncement("");
       setError("请选择 JPEG、PNG 或 WebP 图片");
       return;
     }
     if (candidate.size > MAX_BYTES) {
+      setAnnouncement("");
       setError("图片不能超过 20 MB");
       return;
     }
     setError("");
     setFile(candidate);
-  };
+    setAnnouncement(source === "paste" ? `已粘贴图片：${candidate.name || "剪贴板图片"}` : "");
+  }, []);
 
   const customRatioValid = outputTemplate !== "custom" || isCustomRatioValid({
     width: customRatioWidth,
     height: customRatioHeight,
   });
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (busy) return;
+      const pasted = firstPastedImage(event.clipboardData?.items);
+      if (!pasted) return;
+      event.preventDefault();
+      choose(pasted, "paste");
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [busy, choose]);
+
   const intent = createAnalysisIntent(
     scene,
     outputTemplate,
@@ -105,6 +136,7 @@ export function UploadPanel({
           type="button"
           className={`drop-zone ${dragging ? "is-dragging" : ""} ${previewUrl ? "has-preview" : ""}`}
           aria-describedby={error ? "upload-error" : undefined}
+          disabled={busy}
           onClick={() => inputRef.current?.click()}
           onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
           onDragOver={(event) => event.preventDefault()}
@@ -112,6 +144,7 @@ export function UploadPanel({
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
+            if (busy) return;
             choose(event.dataTransfer.files[0]);
           }}
         >
@@ -120,23 +153,33 @@ export function UploadPanel({
           ) : (
             <UploadCloud aria-hidden="true" size={30} />
           )}
-          <strong>{file ? "已选择图片" : "拖入图片，或点击浏览"}</strong>
-          <span>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "只处理单张图片"}</span>
+          <strong>{file ? "已选择图片" : "拖入或粘贴图片，也可点击浏览"}</strong>
+          <span>
+            {file
+              ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
+              : "支持拖拽文件、Ctrl / ⌘ + V 粘贴，只处理单张图片"}
+          </span>
         </button>
         <input
           ref={inputRef}
           className="visually-hidden"
           type="file"
           accept="image/jpeg,image/png,image/webp"
+          disabled={busy}
           onChange={(event) => choose(event.target.files?.[0])}
         />
+        <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+          {announcement}
+        </p>
 
         {file && (
           <button
             type="button"
             className="clear-file"
+            disabled={busy}
             onClick={() => {
               setFile(null);
+              setAnnouncement("");
               if (inputRef.current) inputRef.current.value = "";
             }}
           >

@@ -22,6 +22,7 @@ class Settings:
     retention_seconds: int = 3600
     task_timeout_seconds: int = 120
     worker_poll_seconds: float = 1.0
+    image_decode_concurrency: int = 2
     worker_backend: str = "mock"
     model_path: Path | None = None
     load_in_8bit: bool = True
@@ -31,6 +32,10 @@ class Settings:
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 12.0
     p0_capabilities_verified: bool = False
+
+    def __post_init__(self) -> None:
+        if self.image_decode_concurrency < 1:
+            raise ValueError("image_decode_concurrency must be at least 1")
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -51,6 +56,7 @@ class Settings:
             retention_seconds=int(os.getenv("SMARTCROP_RETENTION_SECONDS", 3600)),
             task_timeout_seconds=int(os.getenv("SMARTCROP_TASK_TIMEOUT_SECONDS", 120)),
             worker_poll_seconds=float(os.getenv("SMARTCROP_WORKER_POLL_SECONDS", 1.0)),
+            image_decode_concurrency=int(os.getenv("SMARTCROP_DECODE_CONCURRENCY", 2)),
             worker_backend=os.getenv("SMARTCROP_WORKER_BACKEND", "mock").strip().lower(),
             model_path=Path(model_value).resolve() if model_value else None,
             load_in_8bit=_as_bool(os.getenv("SMARTCROP_LOAD_IN_8BIT"), True),

@@ -235,6 +235,9 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
     )
     app.state.settings = resolved
     app.state.store = store
+    # Bound concurrent full-resolution decode/re-encode so several 50 MP
+    # uploads cannot stack multi-hundred-MB buffers on one host.
+    image_decode_slots = asyncio.Semaphore(resolved.image_decode_concurrency)
 
     @app.middleware("http")
     async def security_headers(request, call_next):
@@ -303,27 +306,33 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
                 detail="当前排队任务已满，请稍后重试",
                 headers={"Retry-After": "30"},
             )
-        try:
-            payload = await _read_upload(file, resolved.max_upload_bytes)
-            decoded = await asyncio.to_thread(
-                decode_image,
-                payload,
-                file.content_type,
-                resolved.max_upload_bytes,
-            )
-        except ImageValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
-            ) from exc
-        finally:
-            await file.close()
-
         job_id = uuid.uuid4().hex
         job_dir = resolved.jobs_dir / job_id
         try:
-            input_path = await asyncio.to_thread(save_normalized_original, decoded, job_dir)
-            preview_path = await asyncio.to_thread(save_preview, decoded, job_dir)
+            async with image_decode_slots:
+                try:
+                    payload = await _read_upload(file, resolved.max_upload_bytes)
+                    decoded = await asyncio.to_thread(
+                        decode_image,
+                        payload,
+                        file.content_type,
+                        resolved.max_upload_bytes,
+                    )
+                    input_path = await asyncio.to_thread(save_normalized_original, decoded, job_dir)
+                    preview_path = await asyncio.to_thread(save_preview, decoded, job_dir)
+                except ImageValidationError as exc:
+                    await asyncio.to_thread(shutil.rmtree, job_dir, True)
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=str(exc),
+                    ) from exc
+                except Exception:
+                    await asyncio.to_thread(shutil.rmtree, job_dir, True)
+                    raise
+        finally:
+            await file.close()
+
+        try:
             if (custom_ratio_width is None) != (custom_ratio_height is None):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -459,15 +468,16 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             content_type = (
                 "image/png" if parent.crop_path.suffix.lower() == ".png" else "image/jpeg"
             )
-            payload = await asyncio.to_thread(parent.crop_path.read_bytes)
-            decoded = await asyncio.to_thread(
-                decode_image,
-                payload,
-                content_type,
-                max(len(payload), resolved.max_upload_bytes),
-            )
-            input_path = await asyncio.to_thread(save_normalized_original, decoded, review_dir)
-            preview_path = await asyncio.to_thread(save_preview, decoded, review_dir)
+            async with image_decode_slots:
+                payload = await asyncio.to_thread(parent.crop_path.read_bytes)
+                decoded = await asyncio.to_thread(
+                    decode_image,
+                    payload,
+                    content_type,
+                    max(len(payload), resolved.max_upload_bytes),
+                )
+                input_path = await asyncio.to_thread(save_normalized_original, decoded, review_dir)
+                preview_path = await asyncio.to_thread(save_preview, decoded, review_dir)
             review = await asyncio.to_thread(
                 store.create_job,
                 job_id=review_id,
