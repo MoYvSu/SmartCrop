@@ -245,6 +245,7 @@ def test_infeasible_target_ratio_is_rejected_before_inference(
 
     assert response.status_code == 422
     assert "差异过大" in response.json()["detail"]
+    assert not any(settings.jobs_dir.iterdir())
 
 
 @pytest.mark.parametrize(

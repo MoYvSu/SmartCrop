@@ -5,9 +5,10 @@ import hmac
 import json
 import shutil
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Annotated
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
+from typing import Annotated, TypeVar
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
@@ -39,6 +40,7 @@ from smartcrop_image_core import (
 from smartcrop_runtime import JobRecord, JobStore, Settings, cleanup_expired_jobs
 
 ACCESS_HEADER = "X-SmartCrop-Access"
+T = TypeVar("T")
 
 
 class PublicConfig(BaseModel):
@@ -202,6 +204,39 @@ async def _read_upload(file: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+def _prepare_image(
+    payload: bytes,
+    content_type: str | None,
+    max_bytes: int,
+    target_dir: Path,
+) -> tuple[Path, Path, str, int, int]:
+    decoded = decode_image(payload, content_type, max_bytes)
+    try:
+        input_path = save_normalized_original(decoded, target_dir)
+        preview_path = save_preview(decoded, target_dir)
+        return (
+            input_path,
+            preview_path,
+            decoded.source_format,
+            decoded.width,
+            decoded.height,
+        )
+    finally:
+        decoded.image.close()
+
+
+async def _await_blocking_operation(function: Callable[..., T], *args: object) -> T:
+    """Wait for a worker thread to finish before propagating request cancellation."""
+    operation = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(operation)
+    except asyncio.CancelledError:
+        # The request cancellation remains the user-visible outcome.
+        with suppress(Exception):
+            await asyncio.shield(operation)
+        raise
+
+
 def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> FastAPI:
     resolved = settings or Settings.from_env()
     resolved.ensure_directories()
@@ -235,9 +270,9 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
     )
     app.state.settings = resolved
     app.state.store = store
-    # Bound concurrent full-resolution decode/re-encode so several 50 MP
-    # uploads cannot stack multi-hundred-MB buffers on one host.
-    image_decode_slots = asyncio.Semaphore(resolved.image_decode_concurrency)
+    # Per-process bound for full-resolution image work. The production CLI runs
+    # one API process, so this is also the host-wide limit in the current deployment.
+    image_operation_slots = asyncio.Semaphore(resolved.image_decode_concurrency)
 
     @app.middleware("http")
     async def security_headers(request, call_next):
@@ -309,28 +344,32 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         job_id = uuid.uuid4().hex
         job_dir = resolved.jobs_dir / job_id
         try:
-            async with image_decode_slots:
-                try:
-                    payload = await _read_upload(file, resolved.max_upload_bytes)
-                    decoded = await asyncio.to_thread(
-                        decode_image,
-                        payload,
-                        file.content_type,
-                        resolved.max_upload_bytes,
-                    )
-                    input_path = await asyncio.to_thread(save_normalized_original, decoded, job_dir)
-                    preview_path = await asyncio.to_thread(save_preview, decoded, job_dir)
-                except ImageValidationError as exc:
-                    await asyncio.to_thread(shutil.rmtree, job_dir, True)
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=str(exc),
-                    ) from exc
-                except Exception:
-                    await asyncio.to_thread(shutil.rmtree, job_dir, True)
-                    raise
+            async with image_operation_slots:
+                payload = await _read_upload(file, resolved.max_upload_bytes)
+                prepared = await _await_blocking_operation(
+                    _prepare_image,
+                    payload,
+                    file.content_type,
+                    resolved.max_upload_bytes,
+                    job_dir,
+                )
+                del payload
+        except ImageValidationError as exc:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except asyncio.CancelledError:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            raise
+        except Exception:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            raise
         finally:
             await file.close()
+
+        input_path, preview_path, source_format, image_width, image_height = prepared
 
         try:
             if (custom_ratio_width is None) != (custom_ratio_height is None):
@@ -355,15 +394,15 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=str(exc.errors()[0]["msg"]),
                 ) from exc
-            _ensure_ratio_is_feasible(intent, decoded.width, decoded.height)
+            _ensure_ratio_is_feasible(intent, image_width, image_height)
             record = await asyncio.to_thread(
                 store.create_job,
                 job_id=job_id,
                 input_path=input_path,
                 preview_path=preview_path,
-                source_format=decoded.source_format,
-                image_width=decoded.width,
-                image_height=decoded.height,
+                source_format=source_format,
+                image_width=image_width,
+                image_height=image_height,
                 retention_seconds=resolved.retention_seconds,
                 intent=intent,
             )
@@ -408,7 +447,13 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
 
         suffix = ".png" if record.input_path.suffix.lower() == ".png" else ".jpg"
         crop_path = record.input_path.parent / f"crop{suffix}"
-        await asyncio.to_thread(crop_original, record.input_path, request.crop, crop_path)
+        async with image_operation_slots:
+            await _await_blocking_operation(
+                crop_original,
+                record.input_path,
+                request.crop,
+                crop_path,
+            )
         reference_crop = next(
             (
                 candidate.crop
@@ -468,29 +513,33 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             content_type = (
                 "image/png" if parent.crop_path.suffix.lower() == ".png" else "image/jpeg"
             )
-            async with image_decode_slots:
-                payload = await asyncio.to_thread(parent.crop_path.read_bytes)
-                decoded = await asyncio.to_thread(
-                    decode_image,
+            async with image_operation_slots:
+                payload = await _await_blocking_operation(parent.crop_path.read_bytes)
+                prepared = await _await_blocking_operation(
+                    _prepare_image,
                     payload,
                     content_type,
                     max(len(payload), resolved.max_upload_bytes),
+                    review_dir,
                 )
-                input_path = await asyncio.to_thread(save_normalized_original, decoded, review_dir)
-                preview_path = await asyncio.to_thread(save_preview, decoded, review_dir)
+                del payload
+            input_path, preview_path, source_format, image_width, image_height = prepared
             review = await asyncio.to_thread(
                 store.create_job,
                 job_id=review_id,
                 input_path=input_path,
                 preview_path=preview_path,
-                source_format=decoded.source_format,
-                image_width=decoded.width,
-                image_height=decoded.height,
+                source_format=source_format,
+                image_width=image_width,
+                image_height=image_height,
                 retention_seconds=resolved.retention_seconds,
                 intent=parent.intent,
                 mode=JobMode.REVIEW,
                 parent_job_id=parent.id,
             )
+        except asyncio.CancelledError:
+            await asyncio.to_thread(shutil.rmtree, review_dir, True)
+            raise
         except Exception:
             await asyncio.to_thread(shutil.rmtree, review_dir, True)
             raise

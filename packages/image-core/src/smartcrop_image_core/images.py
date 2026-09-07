@@ -39,19 +39,17 @@ def decode_image(data: bytes, content_type: str | None, max_bytes: int) -> Decod
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ImageValidationError("仅支持 JPEG、PNG 和 WebP 图片")
 
-    original_limit = Image.MAX_IMAGE_PIXELS
-    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
     try:
         with Image.open(BytesIO(data)) as opened:
             source_format = (opened.format or "").upper()
             if source_format not in ALLOWED_FORMATS:
                 raise ImageValidationError("图片实际格式与支持范围不符")
+            if opened.width * opened.height > MAX_IMAGE_PIXELS:
+                raise ImageValidationError("图片像素数量过大")
             opened.load()
             oriented = ImageOps.exif_transpose(opened)
             if oriented.width < MIN_EDGE or oriented.height < MIN_EDGE:
                 raise ImageValidationError(f"图片宽高至少为 {MIN_EDGE} 像素")
-            if oriented.width * oriented.height > MAX_IMAGE_PIXELS:
-                raise ImageValidationError("图片像素数量过大")
             if oriented.mode not in {"RGB", "RGBA"}:
                 oriented = oriented.convert("RGBA" if "transparency" in oriented.info else "RGB")
             return DecodedImage(image=oriented.copy(), source_format=source_format)
@@ -59,8 +57,6 @@ def decode_image(data: bytes, content_type: str | None, max_bytes: int) -> Decod
         raise
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as exc:
         raise ImageValidationError("无法解码该图片，请检查文件是否损坏") from exc
-    finally:
-        Image.MAX_IMAGE_PIXELS = original_limit
 
 
 def _has_alpha(image: Image.Image) -> bool:
