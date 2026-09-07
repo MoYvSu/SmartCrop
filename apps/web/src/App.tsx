@@ -1,7 +1,17 @@
-import { Download, FileJson, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  Download,
+  FileJson,
+  ImagePlus,
+  Redo2,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  SlidersHorizontal,
+  Undo2,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
+import { ApiError, cancelJob, createJob, downloadArtifact, getJob, updateCrop } from "./api";
 import { CandidatePanel } from "./components/CandidatePanel";
 import { CompositionTools } from "./components/CompositionTools";
 import { CropEditor } from "./components/CropEditor";
@@ -54,8 +64,79 @@ export default function App() {
   const [provenance, setProvenance] = useState<RunProvenance>("upload");
   const [phase, setPhase] = useState<"upload" | "processing" | "result">("upload");
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
   const pollToken = useRef(0);
+
+  // Undo/redo history for the editable crop box. History only advances at
+  // "edit session" boundaries (pointer up / arrow key / discrete jumps), so
+  // live pointer drags never flood the stack.
+  const historyStack = useRef<CropBox[]>([]);
+  const historyIndex = useRef(-1);
+  const [, setHistoryVersion] = useState(0);
+  const latestDraftRef = useRef<CropBox | null>(null);
+  latestDraftRef.current = draftCrop;
+  const undoRef = useRef(() => {});
+  const redoRef = useRef(() => {});
+
+  const resetDraftHistory = (initial: CropBox) => {
+    historyStack.current = [initial];
+    historyIndex.current = 0;
+    setDraftCrop(initial);
+    setHistoryVersion((version) => version + 1);
+  };
+
+  const clearDraftHistory = () => {
+    historyStack.current = [];
+    historyIndex.current = -1;
+    setHistoryVersion((version) => version + 1);
+  };
+
+  const commitCropHistory = useCallback(() => {
+    const draft = latestDraftRef.current;
+    if (!draft) return;
+    const stack = historyStack.current.slice(0, historyIndex.current + 1);
+    const last = stack[stack.length - 1];
+    if (last && cropEquals(last, draft)) return;
+    stack.push(draft);
+    historyStack.current = stack;
+    historyIndex.current = stack.length - 1;
+    setHistoryVersion((version) => version + 1);
+  }, []);
+
+  const jumpCrop = (next: CropBox) => {
+    commitCropHistory();
+    const stack = historyStack.current;
+    const last = stack[stack.length - 1];
+    if (last && cropEquals(last, next)) {
+      setDraftCrop(next);
+      return;
+    }
+    stack.push(next);
+    historyStack.current = stack;
+    historyIndex.current = stack.length - 1;
+    setDraftCrop(next);
+    setHistoryVersion((version) => version + 1);
+  };
+
+  const undoCrop = () => {
+    if (historyIndex.current <= 0) return;
+    historyIndex.current -= 1;
+    setDraftCrop(historyStack.current[historyIndex.current]);
+    setHistoryVersion((version) => version + 1);
+  };
+
+  const redoCrop = () => {
+    if (historyIndex.current >= historyStack.current.length - 1) return;
+    historyIndex.current += 1;
+    setDraftCrop(historyStack.current[historyIndex.current]);
+    setHistoryVersion((version) => version + 1);
+  };
+  undoRef.current = undoCrop;
+  redoRef.current = redoCrop;
+  const canUndoCrop = historyIndex.current > 0;
+  const canRedoCrop =
+    historyIndex.current >= 0 && historyIndex.current < historyStack.current.length - 1;
 
   useEffect(() => {
     sessionStorage.setItem("smartcrop-access", accessCode);
@@ -104,7 +185,7 @@ export default function App() {
         setJob(current);
       }
       if (current.status === "failed") {
-        setDraftCrop(fitCropToIntent(
+        resetDraftHistory(fitCropToIntent(
           DEFAULT_MANUAL_CROP,
           current.intent,
           current.image_width,
@@ -117,7 +198,7 @@ export default function App() {
       if (current.status !== "succeeded" || !current.final_crop) {
         throw new Error(current.error?.message || "任务未能完成，请重新上传图片");
       }
-      setDraftCrop(current.final_crop);
+      resetDraftHistory(current.final_crop);
       setSelectedCandidateId(current.selected_candidate_id || current.candidates[0]?.id || null);
       setSelectionReasons(current.selection_reasons || []);
       setSelectionNote(current.selection_note || "");
@@ -292,16 +373,31 @@ export default function App() {
   };
 
   const selectCandidate = (candidate: CropCandidate) => {
-    setDraftCrop(candidate.crop);
+    jumpCrop(candidate.crop);
     setSelectedCandidateId(candidate.id);
   };
 
   const restoreAiSuggestion = () => {
     const aiCrop = job?.ai_crop;
     if (!job || !aiCrop) return;
-    setDraftCrop(aiCrop);
+    jumpCrop(aiCrop);
     const sourceCandidate = job.candidates.find((candidate) => cropEquals(candidate.crop, aiCrop));
     setSelectedCandidateId(sourceCandidate?.id || job.selected_candidate_id || null);
+  };
+
+  const cancel = async () => {
+    if (!job) return;
+    setCancelling(true);
+    setError("");
+    try {
+      const updated = await cancelJob(job.id, accessCode);
+      pollToken.current += 1;
+      setJob(updated);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "任务取消失败，请稍后重试");
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const toggleGuide = (guide: CompositionGuide) => {
@@ -359,7 +455,9 @@ export default function App() {
           />
         )}
 
-        {phase === "processing" && job && <ProcessingPanel job={job} onReset={reset} />}
+        {phase === "processing" && job && (
+          <ProcessingPanel job={job} onReset={reset} onCancel={cancel} cancelling={cancelling} />
+        )}
 
         {phase === "result" && job && draftCrop && sourceUrl && (
           <main className="result-shell" id="main-content">
@@ -370,6 +468,26 @@ export default function App() {
                   <h1 id="workspace-heading">调整最终构图</h1>
                 </div>
                 <div className="toolbar-actions">
+                  <button
+                    type="button"
+                    className="icon-text-button"
+                    title="撤销裁剪调整（Ctrl+Z）"
+                    aria-label="撤销裁剪调整"
+                    disabled={!canUndoCrop || busy}
+                    onClick={undoCrop}
+                  >
+                    <Undo2 aria-hidden="true" size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-text-button"
+                    title="重做裁剪调整（Ctrl+Shift+Z）"
+                    aria-label="重做裁剪调整"
+                    disabled={!canRedoCrop || busy}
+                    onClick={redoCrop}
+                  >
+                    <Redo2 aria-hidden="true" size={16} />
+                  </button>
                   <button type="button" className="secondary-button" onClick={reset}>
                     <ImagePlus aria-hidden="true" size={18} />分析另一张
                   </button>
@@ -443,6 +561,7 @@ export default function App() {
                     imageUrl={sourceUrl}
                     crop={draftCrop}
                     onChange={setDraftCrop}
+                    onEditEnd={commitCropHistory}
                     aspectRatio={aspectRatio}
                     guides={guides}
                   />

@@ -77,3 +77,39 @@ export function fitCropToIntent(
     ),
   );
 }
+
+/** Reference lines a moved box may magnet to: edges and the composition guides. */
+export const SNAP_LINES = [0, 1 / 3, 0.5, 2 / 3, 1];
+const SNAP_EPSILON = 0.012;
+
+function snapAxisPosition(value: number, size: number): number {
+  // A box can align to a line with any of its left/top, center, or right/bottom
+  // edge. Choose the closest legal target and keep the box size untouched.
+  let best = value;
+  let bestDelta = SNAP_EPSILON;
+  for (const line of SNAP_LINES) {
+    for (const offset of [0, -size / 2, -size]) {
+      const candidate = line + offset;
+      const delta = Math.abs(candidate - value);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Snap an entire (size-preserving) move to the active composition lines.
+ * Only used for whole-box moves, never for resizing, so a locked ratio is
+ * never silently broken.
+ */
+export function snapMovedCrop(crop: CropBox): CropBox {
+  return {
+    x: clamp(snapAxisPosition(crop.x, crop.width), 0, 1 - crop.width),
+    y: clamp(snapAxisPosition(crop.y, crop.height), 0, 1 - crop.height),
+    width: crop.width,
+    height: crop.height,
+  };
+}

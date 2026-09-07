@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
-import { clamp, fitCropToAspect, MIN_CROP_SIZE, moveCrop } from "../lib/crop";
+import { clamp, fitCropToAspect, MIN_CROP_SIZE, moveCrop, snapMovedCrop } from "../lib/crop";
 import type { CompositionGuide, CropBox } from "../types";
 
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
@@ -19,6 +19,8 @@ interface Props {
   imageUrl: string;
   crop: CropBox;
   onChange: (crop: CropBox) => void;
+  /** Commit point for an ended edit session (used by undo/redo history). */
+  onEditEnd?: () => void;
   aspectRatio?: number | null;
   guides?: CompositionGuide[];
 }
@@ -50,6 +52,7 @@ export function CropEditor({
   imageUrl,
   crop,
   onChange,
+  onEditEnd,
   aspectRatio = null,
   guides = ["thirds"],
 }: Props) {
@@ -79,18 +82,31 @@ export function CropEditor({
     const move = (event: PointerEvent) => {
       const dx = (event.clientX - interaction.pointerX) / interaction.width;
       const dy = (event.clientY - interaction.pointerY) / interaction.height;
-      onChange(fitCropToAspect(resizeCrop(interaction.crop, interaction.handle, dx, dy), aspectRatio));
+      const resized = resizeCrop(interaction.crop, interaction.handle, dx, dy);
+      const fitted = fitCropToAspect(resized, aspectRatio);
+      onChange(interaction.handle === "move" ? snapMovedCrop(fitted) : fitted);
     };
-    const stop = () => setInteraction(null);
+    const stop = () => {
+      setInteraction(null);
+      onEditEnd?.();
+    };
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      onChange(interaction.crop);
+      setInteraction(null);
+      onEditEnd?.();
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop, { once: true });
     window.addEventListener("pointercancel", stop, { once: true });
+    window.addEventListener("keydown", cancelWithEscape);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("keydown", cancelWithEscape);
     };
-  }, [aspectRatio, interaction, onChange]);
+  }, [aspectRatio, interaction, onChange, onEditEnd]);
 
   const keyboardDelta = (event: ReactKeyboardEvent): [number, number] | null => {
     const amount = event.shiftKey ? 0.05 : 0.01;
@@ -107,6 +123,7 @@ export function CropEditor({
     if (!delta) return;
     event.preventDefault();
     onChange(moveCrop(crop, delta[0], delta[1]));
+    onEditEnd?.();
   };
 
   const onHandleKeyDown = (handle: Exclude<Handle, "move">, event: ReactKeyboardEvent) => {
@@ -115,6 +132,7 @@ export function CropEditor({
     event.preventDefault();
     event.stopPropagation();
     onChange(fitCropToAspect(resizeCrop(crop, handle, delta[0], delta[1]), aspectRatio));
+    onEditEnd?.();
   };
 
   return (
@@ -130,7 +148,7 @@ export function CropEditor({
           height: `${crop.height * 100}%`,
         }}
         role="group"
-        aria-label="裁剪框。可拖动位置，方向键微调，按住 Shift 加速。"
+        aria-label="裁剪框。可拖动位置，方向键微调，按住 Shift 加速，Esc 取消本次调整。"
         tabIndex={0}
         onPointerDown={(event) => startInteraction("move", event)}
         onKeyDown={onKeyDown}

@@ -67,6 +67,19 @@ export function UploadPanel({
     width: customRatioWidth,
     height: customRatioHeight,
   });
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItem = items.find((item) => item.type.startsWith("image/"));
+      if (!imageItem) return;
+      const pasted = imageItem.getAsFile();
+      if (pasted) choose(pasted);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [choose]);
+
   const intent = createAnalysisIntent(
     scene,
     outputTemplate,
@@ -156,8 +169,12 @@ export function UploadPanel({
           ) : (
             <UploadCloud aria-hidden="true" size={30} />
           )}
-          <strong>{file ? "已选择图片" : "拖入图片，或点击浏览"}</strong>
-          <span>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : "只处理单张图片"}</span>
+          <strong>{file ? "已选择图片" : "拖入或粘贴图片，也可点击浏览"}</strong>
+          <span>
+            {file
+              ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
+              : "支持拖拽文件、Ctrl / ⌘ + V 粘贴，只处理单张图片"}
+          </span>
         </button>
         <input
           ref={inputRef}

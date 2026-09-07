@@ -6,6 +6,7 @@ import {
   fitCropToIntent,
   moveCrop,
   normalizedAspectRatio,
+  snapMovedCrop,
 } from "./crop";
 
 describe("crop helpers", () => {
@@ -16,6 +17,25 @@ describe("crop helpers", () => {
       width: 0.3,
       height: 0.3,
     });
+  });
+
+  it("snaps a near-threshold move onto a composition line", () => {
+    const snapped = snapMovedCrop({ x: 0.328, y: 0.1, width: 0.5, height: 0.4 });
+    expect(snapped.x).toBeCloseTo(1 / 3);
+    expect(snapped.y).toBeCloseTo(0.1);
+    expect(snapped.width).toBeCloseTo(0.5);
+    expect(snapped.height).toBeCloseTo(0.4);
+  });
+
+  it("snaps the box center onto the middle line when moved", () => {
+    // Center = 0.5 when x = 0.35 with width 0.3 (a third-line alignment of the center).
+    const snapped = snapMovedCrop({ x: 0.353, y: 0.1, width: 0.3, height: 0.4 });
+    expect(snapped.x).toBeCloseTo(0.35);
+  });
+
+  it("leaves a far-from-line move untouched and inside bounds", () => {
+    const original = { x: 0.05, y: 0.05, width: 0.3, height: 0.3 };
+    expect(snapMovedCrop(original)).toEqual(original);
   });
 
   it("compares crops with a small tolerance", () => {

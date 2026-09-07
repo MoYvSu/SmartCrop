@@ -189,3 +189,79 @@ def test_expired_job_record_is_removed(tmp_path: Path) -> None:
 
     assert [record.id for record in removed] == ["expired"]
     assert store.get_job("expired") is None
+
+
+def test_queued_job_can_be_cancelled_and_stays_terminal(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    _create(store, tmp_path)
+
+    assert store.cancel_job("job-1")
+    assert store.get_job("job-1").status == JobStatus.CANCELLED
+    assert store.claim_next() is None
+    assert not store.fail_job("job-1", "inference_failed", "模型错误")
+    assert not store.complete_job(
+        "job-1",
+        report=_report(),
+        candidates=[
+            CropCandidate(
+                id="balanced",
+                crop=CropBox(x=0.1, y=0.1, width=0.8, height=0.8),
+            )
+        ],
+        crop_path=tmp_path / "job-1" / "crop.jpg",
+    )
+    assert not store.cancel_job("job-1")
+
+
+def test_running_job_cancel_rejects_late_result(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    _create(store, tmp_path)
+    assert store.claim_next() is not None
+    assert store.get_job("job-1").status == JobStatus.RUNNING
+
+    assert store.cancel_job("job-1")
+    assert store.get_job("job-1").status == JobStatus.CANCELLED
+    assert not store.complete_job(
+        "job-1",
+        report=_report(),
+        candidates=[
+            CropCandidate(
+                id="balanced",
+                crop=CropBox(x=0.1, y=0.1, width=0.8, height=0.8),
+            )
+        ],
+        crop_path=tmp_path / "job-1" / "crop.jpg",
+    )
+    assert not store.fail_job("job-1", "inference_timeout", "超时")
+
+
+def test_pop_expired_keeps_running_job_until_timeout(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    job_dir = tmp_path / "stale"
+    job_dir.mkdir()
+    original = job_dir / "original.jpg"
+    preview = job_dir / "preview.jpg"
+    original.touch()
+    preview.touch()
+    store.create_job(
+        job_id="stale",
+        input_path=original,
+        preview_path=preview,
+        source_format="JPEG",
+        image_width=800,
+        image_height=600,
+        retention_seconds=-1,
+    )
+    assert store.claim_next() is not None
+    assert store.get_job("stale").status == JobStatus.RUNNING
+
+    assert store.pop_expired() == []
+    assert store.get_job("stale") is not None
+
+    assert store.expire_stale_running(0) == 1
+    assert store.get_job("stale").status == JobStatus.FAILED
+    assert [record.id for record in store.pop_expired()] == ["stale"]
+    assert store.get_job("stale") is None

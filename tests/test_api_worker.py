@@ -372,3 +372,71 @@ def test_translation_failure_keeps_successful_crop_and_original_report(
         assert body["status"] == JobStatus.SUCCEEDED.value
         assert body["artifacts"]["crop"]
         assert body["report"]["overview"]
+
+
+def test_queued_job_can_be_cancelled_via_api(jpeg_bytes: bytes, tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    app = create_app(settings, serve_web=False)
+
+    with TestClient(app) as client:
+        submitted = _submit(client, jpeg_bytes)
+        cancelled = client.post(
+            f"/v1/jobs/{submitted['id']}/cancel",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == JobStatus.CANCELLED.value
+        assert cancelled.json()["progress_message"] == "任务已取消"
+
+        store = JobStore(settings.database_path)
+        assert not Worker(settings, store, MockBackend()).run_once()
+
+        result = client.get(
+            f"/v1/jobs/{submitted['id']}",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == JobStatus.CANCELLED.value
+
+        again = client.post(
+            f"/v1/jobs/{submitted['id']}/cancel",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert again.status_code == 409
+
+
+def test_running_job_can_be_cancelled_and_worker_skips_it(
+    jpeg_bytes: bytes,
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    app = create_app(settings, serve_web=False)
+
+    with TestClient(app) as client:
+        submitted = _submit(client, jpeg_bytes)
+        store = JobStore(settings.database_path)
+        assert store.claim_next() is not None
+
+        cancelled = client.post(
+            f"/v1/jobs/{submitted['id']}/cancel",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == JobStatus.CANCELLED.value
+        assert not Worker(settings, store, MockBackend()).run_once()
+
+
+def test_terminal_job_cannot_be_cancelled(jpeg_bytes: bytes, tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    app = create_app(settings, serve_web=False)
+
+    with TestClient(app) as client:
+        submitted = _submit(client, jpeg_bytes)
+        store = JobStore(settings.database_path)
+        assert Worker(settings, store, MockBackend()).run_once()
+
+        cancelled = client.post(
+            f"/v1/jobs/{submitted['id']}/cancel",
+            headers={"X-SmartCrop-Access": "demo-code"},
+        )
+        assert cancelled.status_code == 409

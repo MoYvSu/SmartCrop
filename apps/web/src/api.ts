@@ -68,6 +68,15 @@ export async function getJob(jobId: string, accessCode: string): Promise<JobResp
   );
 }
 
+export async function cancelJob(jobId: string, accessCode: string): Promise<JobResponse> {
+  return expectJson<JobResponse>(
+    await fetch(`/v1/jobs/${jobId}/cancel`, {
+      method: "POST",
+      headers: headers(accessCode),
+    }),
+  );
+}
+
 export async function updateCrop(
   jobId: string,
   crop: CropBox,

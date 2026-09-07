@@ -327,6 +327,25 @@ class JobStore:
             )
         return result.rowcount == 1
 
+    def cancel_job(self, job_id: str) -> bool:
+        now = utc_now()
+        with self._connect() as connection:
+            result = connection.execute(
+                """
+                UPDATE jobs SET status = ?, completed_at = ?, updated_at = ?
+                WHERE id = ? AND status IN (?, ?)
+                """,
+                (
+                    JobStatus.CANCELLED.value,
+                    to_iso(now),
+                    to_iso(now),
+                    job_id,
+                    JobStatus.QUEUED.value,
+                    JobStatus.RUNNING.value,
+                ),
+            )
+        return result.rowcount == 1
+
     def fail_job(self, job_id: str, code: str, message: str) -> bool:
         now = utc_now()
         with self._connect() as connection:
@@ -413,11 +432,20 @@ class JobStore:
         return result.rowcount
 
     def pop_expired(self) -> list[JobRecord]:
+        """Remove expired records except jobs still running.
+
+        A running job is only reaped after ``expire_stale_running`` flips it to
+        ``failed``, so an in-flight inference directory is never deleted beneath
+        a live worker (see ADR-0002 retention semantics).
+        """
         now = to_iso(utc_now())
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM jobs WHERE expires_at <= ?",
-                (now,),
+                """
+                SELECT * FROM jobs
+                WHERE expires_at <= ? AND status != ?
+                """,
+                (now, JobStatus.RUNNING.value),
             ).fetchall()
             if rows:
                 connection.executemany(
