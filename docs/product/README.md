@@ -5,3 +5,4 @@
 - [P0.5 人机协同构图助手](p0-5-human-guided-composition.md)：当前产品边界、渐进实现路线和验收标准。
 - [P0.5 比赛演示路径](p0-5-competition-demo.md)：用户手册、答辩讲解和视频镜头共用的固定路径。
 - [模型改进计划](model-improvement-participation.md)：未来自愿数据贡献、撤回与主动学习的实施门禁。
+- [延期功能备忘](deferred-colleague-features.md)：保留同事提交中的取消、恢复与裁剪交互思路及未来验收条件。
