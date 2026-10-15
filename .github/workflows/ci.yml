@@ -20,8 +20,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
+      # Resolve from the frontend workspace so its custom storeDir is respected.
+      - name: Resolve pnpm store
+        id: pnpm_cache
+        run: echo "path=$(pnpm --dir apps/web store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm_cache.outputs.path }}
+          key: ${{ runner.os }}-pnpm-11-${{ hashFiles('apps/web/pnpm-lock.yaml', 'apps/web/pnpm-workspace.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-11-
       - run: pnpm --dir apps/web install --frozen-lockfile
       - run: pnpm --dir apps/web test
       - run: pnpm --dir apps/web build
