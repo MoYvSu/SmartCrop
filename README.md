@@ -1,12 +1,12 @@
 # SmartCrop
 
-SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端应用：用户上传一张图片并选择场景与成片比例，系统按三种构图偏好分别生成建议；用户选择方向、精修裁剪框，并下载原分辨率成片。报告可由 DeepSeek 只翻译文本；翻译不可用时保留英文原文，不影响裁剪结果。
+SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的响应式网页应用：用户上传一张图片并选择场景与成片比例，系统按三种构图偏好分别生成建议；用户选择方向、精修裁剪框，并下载原分辨率成片。报告可由 DeepSeek 只翻译文本；翻译不可用时保留英文原文，不影响裁剪结果。
 
 本仓库仅用于研究、内部展示和受控演示，不用于发布或商业化。数据集已获得使用授权，但数据、模型权重和用户上传均不进入 Git。
 
 ## P0.5 已实现
 
-- React + TypeScript + Vite 桌面工作台，手机端明确提示暂不支持；
+- React + TypeScript + Vite 摄影创作工作台，适配电脑、平板和手机浏览器；
 - FastAPI 上传、任务轮询、访问码保护和图片制品接口；
 - SQLite + 文件系统任务存储，最多 5 个排队任务；
 - 独立串行 GPU worker，长驻加载 Venus；
@@ -33,7 +33,7 @@ SmartCrop 是把 CVPR 2026 研究成果 Venus 落成可演示产品的桌面端�
 ## 仓库结构
 
 ```text
-apps/web/          React 桌面前端
+apps/web/          React 响应式网页前端
 apps/api/          FastAPI HTTP 服务
 workers/venus/     Venus 模型适配、串行 worker 与超时看门狗
 packages/          Python 契约、图像处理、任务运行时

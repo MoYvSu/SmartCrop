@@ -1,4 +1,4 @@
-import { BookOpen, LockKeyhole, UploadCloud, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, LockKeyhole, ShieldCheck, UploadCloud, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createAnalysisIntent,
@@ -6,6 +6,7 @@ import {
   PUBLICATION_PRESETS,
 } from "../lib/publishing";
 import type { AnalysisIntent, OutputTemplate, RunProvenance, SceneType } from "../types";
+import { StudioIntro, StudioSections } from "./StudioShowcase";
 
 interface Props {
   accessCode: string;
@@ -103,24 +104,14 @@ export function UploadPanel({
 
   return (
     <main className="upload-shell" id="main-content" tabIndex={-1}>
-      <section className="intro-panel">
-        <p className="eyebrow">AI aesthetic cropping</p>
-        <h1>把注意力留给画面本身</h1>
-        <p className="intro-copy">
-          先说明用途和成片比例，再从三种构图偏好中选择方向并完成精修。
-        </p>
-        <dl className="intro-facts">
-          <div><dt>输出</dt><dd>三种构图偏好 + 可编辑成片</dd></div>
-          <div><dt>隐私</dt><dd>1 小时后清理，不进入训练集</dd></div>
-          <div><dt>格式</dt><dd>JPEG、PNG、WebP，最大 20 MB</dd></div>
-        </dl>
-      </section>
-
-      <section className="upload-card" aria-labelledby="upload-title">
+      <div className="home-kicker"><span className="eyebrow">你的灵感，从这里开始</span><span className="studio-edition">SMARTCROP / CREATIVE STUDIO</span></div>
+      <div className="creation-grid">
+      <StudioIntro />
+      <section className="upload-card" id="upload-workbench" aria-labelledby="upload-title">
         <div className="section-heading">
-          <div>
-            <p className="eyebrow">新建任务</p>
-            <h2 id="upload-title">选择图片</h2>
+          <div className="upload-title-group">
+            <span className="upload-step" aria-hidden="true">01</span>
+            <div><p className="eyebrow">开始创作</p><h2 id="upload-title">选择你的照片</h2></div>
           </div>
           <button
             type="button"
@@ -151,14 +142,15 @@ export function UploadPanel({
           {previewUrl ? (
             <img className="upload-preview" src={previewUrl} alt={`已选择图片预览：${file?.name || "图片"}`} />
           ) : (
-            <UploadCloud aria-hidden="true" size={30} />
+            <span className="upload-icon"><UploadCloud aria-hidden="true" size={26} /></span>
           )}
           <strong>{file ? "已选择图片" : "拖入或粘贴图片，也可点击浏览"}</strong>
           <span>
             {file
               ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
-              : "支持拖拽文件、Ctrl / ⌘ + V 粘贴，只处理单张图片"}
+              : "支持拖拽文件、Ctrl / ⌘ + V 粘贴"}
           </span>
+          {!file && <small className="upload-formats">JPG / PNG / WEBP · 最大 20 MB</small>}
         </button>
         <input
           ref={inputRef}
@@ -188,9 +180,9 @@ export function UploadPanel({
         )}
 
         <fieldset className="intent-fieldset">
-          <legend>成片意图</legend>
-          <label>使用场景
-            <select value={scene} onChange={(event) => setScene(event.target.value as SceneType)}>
+          <legend className="card-step-label"><span aria-hidden="true">02</span>告诉我们你的创作意图</legend>
+          <label><span id="scene-label">使用场景</span>
+            <select aria-labelledby="scene-label" value={scene} onChange={(event) => setScene(event.target.value as SceneType)}>
               <option value="general">通用构图</option>
               <option value="portrait">人像</option>
               <option value="landscape">风光</option>
@@ -198,8 +190,9 @@ export function UploadPanel({
               <option value="social">社交媒体</option>
             </select>
           </label>
-          <label>发布模板
+          <label><span id="output-template-label">发布模板</span>
             <select
+              aria-labelledby="output-template-label"
               value={outputTemplate}
               onChange={(event) => setOutputTemplate(event.target.value as OutputTemplate)}
             >
@@ -276,8 +269,19 @@ export function UploadPanel({
         >
           <ScanIcon />
           {busy ? "正在提交" : "开始美学分析"}
+          <ArrowUpRight aria-hidden="true" size={18} />
         </button>
+        <p className="upload-privacy"><ShieldCheck aria-hidden="true" size={14} />1 小时后清理，不进入训练集</p>
       </section>
+      </div>
+      <StudioSections
+        selectedTemplate={outputTemplate}
+        disabled={busy}
+        onChooseTemplate={(template, nextScene) => {
+          setOutputTemplate(template);
+          setScene(nextScene);
+        }}
+      />
     </main>
   );
 }

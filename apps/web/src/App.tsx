@@ -1,4 +1,4 @@
-import { Download, ImagePlus, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Check, Download, ImagePlus, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
@@ -280,24 +280,34 @@ export default function App() {
   const reportScopeChanged = Boolean(
     job?.ai_crop && draftCrop && !cropEquals(job.ai_crop, draftCrop),
   );
+  const currentStep = phase === "upload" ? 0 : phase === "processing" ? 1 : 2;
 
   return (
     <>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
-      <div className="mobile-unsupported">
-        <div><SlidersHorizontal aria-hidden="true" size={30} /></div>
-        <h1>请使用桌面浏览器</h1>
-        <p>SmartCrop 当前暂不支持手机端。API 已保留未来扩展能力。</p>
-      </div>
-
       <div className="desktop-app">
         <header className="app-header">
           <a className="brand" href="/" onClick={(event) => { event.preventDefault(); reset(); }}>
             <span className="brand-mark" aria-hidden="true"><CropMark /></span>
             <span><strong>SmartCrop</strong><small>美境智剪</small></span>
           </a>
+          <nav className="header-nav" aria-label="主导航">
+            <a href={phase === "upload" ? "#upload-workbench" : "#main-content"} className="is-active" aria-current="page">创作工作台</a>
+            {phase === "upload" && <><a href="#inspiration">构图灵感</a><a href="#guide">使用指南</a></>}
+          </nav>
           <div className="header-trust"><ShieldCheck aria-hidden="true" size={17} />任务文件 1 小时后自动清理</div>
         </header>
+
+        <div className="workflow-bar">
+          <ol className="workflow-steps" aria-label="创作进度">
+            {["上传照片", "AI 构图", "精修与下载"].map((label, index) => (
+              <li className={index === currentStep ? "is-current" : index < currentStep ? "is-complete" : ""} key={label} aria-current={index === currentStep ? "step" : undefined}>
+                <span className="step-number">{index < currentStep ? <Check aria-hidden="true" size={13} /> : `0${index + 1}`}</span>{label}
+              </li>
+            ))}
+          </ol>
+          <span className="workflow-caption">留住精彩，只需一个新视角</span>
+        </div>
 
         {error && (
           <div className="global-error" role="alert">
@@ -320,11 +330,15 @@ export default function App() {
 
         {phase === "result" && job && draftCrop && sourceUrl && (
           <main className="result-shell" id="main-content" tabIndex={-1}>
+            <div className="result-page-heading">
+              <div><p className="eyebrow">Your creative workspace</p><h1>让这一帧，恰到好处。</h1></div>
+              <span className="workspace-status"><span aria-hidden="true" />{job.selection_confirmed ? "当前方案已确认" : "取景方向，由你决定"}</span>
+            </div>
             <section className="workspace-panel" aria-labelledby="workspace-heading">
               <div className="workspace-toolbar">
                 <div>
                   <p className="eyebrow">任务 {job.id.slice(0, 8)}</p>
-                  <h1 id="workspace-heading">调整最终构图</h1>
+                  <h2 id="workspace-heading">调整最终构图</h2>
                 </div>
                 <div className="toolbar-actions">
                   <button type="button" className="secondary-button" onClick={reset}>
@@ -426,6 +440,7 @@ export default function App() {
             />
           </main>
         )}
+        <footer className="app-footer"><span><strong>SmartCrop</strong> 美境智剪</span><span>用新的视角，看见照片的可能。</span><span>AI 提供灵感 · 你决定画面</span></footer>
       </div>
     </>
   );
