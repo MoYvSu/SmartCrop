@@ -1,0 +1,45 @@
+.sc-preferences { min-width: 0; }
+.sc-preferences form { margin-top: 23px; }
+.sc-preferences-fields,
+.sc-preferences-guides { min-width: 0; margin: 0; padding: 0; border: 0; }
+.sc-preferences-fields { display: grid; gap: 20px; }
+.sc-preferences-field { display: grid; min-width: 0; gap: 8px; color: var(--foreground, #252d29); font-size: 13px; font-weight: 550; }
+.sc-preferences-field select,
+.sc-preferences-field input { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--border-strong, #b7c5b9); border-radius: 8px; padding: 10px 12px; color: var(--foreground, #252d29); background: var(--card, #fffefa); font: inherit; font-weight: 400; transition: border-color 180ms ease, background 180ms ease; }
+.sc-preferences-field select { cursor: pointer; }
+.sc-preferences-field select:hover,
+.sc-preferences-field input:hover { border-color: var(--primary, #275c4c); }
+.sc-preferences input:focus-visible,
+.sc-preferences select:focus-visible { outline: 3px solid var(--primary, #275c4c); outline-offset: 3px; }
+.sc-preferences-fields:disabled { opacity: 0.6; }
+.sc-preferences-fields:disabled select,
+.sc-preferences-fields:disabled input { cursor: not-allowed; }
+.sc-preferences-ratio-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sc-preferences-guides { padding-top: 5px; }
+.sc-preferences-guides > legend { margin-bottom: 12px; padding: 0; font-size: 13px; font-weight: 550; }
+.sc-preferences-guides > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sc-preferences-guide { display: flex; align-items: flex-start; gap: 10px; min-width: 0; min-height: 64px; padding: 13px 11px; border: 1px solid var(--border, #dfe5da); border-radius: 9px; cursor: pointer; transition: background 180ms ease, border-color 180ms ease; }
+.sc-preferences-guide:has(input:checked) { border-color: var(--primary, #275c4c); background: var(--sage, #e5ecdf); }
+.sc-preferences-guide:hover { border-color: var(--primary, #275c4c); }
+.sc-preferences-guide input { flex-shrink: 0; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--primary, #275c4c); cursor: pointer; }
+.sc-preferences-guide span { min-width: 0; }
+.sc-preferences-guide strong { display: block; font-size: 13px; font-weight: 550; }
+.sc-preferences-guide small { display: block; margin-top: 3px; color: var(--muted-foreground, #626c64); font-size: 11px; line-height: 1.6; }
+.sc-workspace-page .sc-preferences-hint { margin-top: 10px; color: var(--muted-foreground, #626c64); font-size: 12px; }
+.sc-preferences-actions { display: flex; flex-wrap: wrap; gap: 10px 15px; margin-top: 25px; }
+.sc-workspace-page .sc-preferences-feedback { margin-top: 15px; color: var(--primary, #275c4c); font-size: 12px; }
+.sc-preferences-feedback > span { display: flex; align-items: flex-start; gap: 8px; }
+.sc-preferences-feedback svg { flex-shrink: 0; margin-top: 3px; }
+.sc-workspace-page .sc-preferences-error { margin-top: 15px; padding: 12px 14px; border: 1px solid var(--danger, #a33b35); border-radius: 8px; color: var(--danger, #a33b35); background: var(--card, #fffefa); font-size: 13px; }
+.sc-workspace-page .sc-preferences-field-error { margin-top: 8px; color: var(--danger, #a33b35); font-size: 12px; }
+.sc-preferences-field input[aria-invalid="true"] { border-color: var(--danger, #a33b35); }
+@media (max-width: 580px) {
+  .sc-preferences-field select,
+  .sc-preferences-field input { font-size: 16px; }
+  .sc-preferences-guides > div { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-preferences-field select,
+  .sc-preferences-field input,
+  .sc-preferences-guide { transition: none; }
+}

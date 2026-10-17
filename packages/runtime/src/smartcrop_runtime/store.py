@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -67,6 +68,20 @@ class JobRecord:
 class JobStore:
     def __init__(self, database_path: Path):
         self.database_path = database_path
+
+    def _capture_project_job(self, job_id: str) -> bool:
+        from .projects import capture_project_job
+
+        try:
+            capture_project_job(self.database_path, job_id)
+            return True
+        except Exception as exc:
+            # A transient project snapshot failure must not turn an already
+            # committed inference result into a failed or overwritten job.
+            logging.getLogger(__name__).warning(
+                "Project reference capture deferred for job %s (%s)", job_id, type(exc).__name__,
+            )
+            return False
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -324,7 +339,10 @@ class JobStore:
                     JobStatus.RUNNING.value,
                 ),
             )
-        return result.rowcount == 1
+        changed = result.rowcount == 1
+        if changed:
+            self._capture_project_job(job_id)
+        return changed
 
     def complete_review_job(self, job_id: str, *, report: Report) -> bool:
         now = utc_now()
@@ -367,7 +385,10 @@ class JobStore:
                     JobStatus.RUNNING.value,
                 ),
             )
-        return result.rowcount == 1
+        changed = result.rowcount == 1
+        if changed:
+            self._capture_project_job(job_id)
+        return changed
 
     def update_manual_crop(
         self,
@@ -447,6 +468,15 @@ class JobStore:
                 """ + job_clause,
                 parameters,
             )
+            expired_ids = [
+                row["id"] for row in connection.execute(
+                    """SELECT id FROM jobs WHERE status=? AND updated_at=?
+                    AND error_code IN ('inference_timeout','postprocessing_timeout')""",
+                    (JobStatus.FAILED.value, to_iso(now)),
+                ).fetchall()
+            ]
+        for expired_id in expired_ids:
+            self._capture_project_job(expired_id)
         return result.rowcount
 
     def expire_stale_running(
@@ -478,8 +508,14 @@ class JobStore:
         return [self._row_to_record(row) for row in rows]
 
     def delete_job(self, job_id: str) -> bool:
+        # Leave the SQL result for cleanup to retry if a project snapshot could
+        # not be copied. Project assets themselves never live in this job dir.
+        if not self._capture_project_job(job_id):
+            return False
         with self._connect() as connection:
             result = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        if result.rowcount == 1:
+            self._capture_project_job(job_id)
         return result.rowcount == 1
 
     @staticmethod

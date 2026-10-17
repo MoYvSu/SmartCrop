@@ -33,10 +33,25 @@ class Settings:
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 12.0
     p0_capabilities_verified: bool = False
+    demo_username: str = "demo"
+    demo_display_name: str = "演示摄影师"
+    demo_password: str = field(default="", repr=False)
+    session_ttl_seconds: int = 7 * 24 * 3600
+    session_cookie_secure: bool = False
 
     def __post_init__(self) -> None:
         if self.image_decode_concurrency < 1:
             raise ValueError("image_decode_concurrency must be at least 1")
+        if self.session_ttl_seconds < 1:
+            raise ValueError("session_ttl_seconds must be at least 1")
+        if (
+            not self.demo_username.strip()
+            or len(self.demo_username) > 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in self.demo_username)
+        ):
+            raise ValueError("demo_username must contain between 1 and 128 characters")
+        if len(self.demo_password) > 1024:
+            raise ValueError("demo_password must contain at most 1024 characters")
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -75,6 +90,11 @@ class Settings:
             p0_capabilities_verified=_as_bool(
                 os.getenv("SMARTCROP_P0_CAPABILITIES_VERIFIED"), False
             ),
+            demo_username=os.getenv("SMARTCROP_DEMO_USERNAME", "demo").strip(),
+            demo_display_name=os.getenv("SMARTCROP_DEMO_DISPLAY_NAME", "演示摄影师").strip(),
+            demo_password=os.getenv("SMARTCROP_DEMO_PASSWORD", ""),
+            session_ttl_seconds=int(os.getenv("SMARTCROP_SESSION_TTL_SECONDS", 7 * 24 * 3600)),
+            session_cookie_secure=_as_bool(os.getenv("SMARTCROP_SESSION_COOKIE_SECURE")),
         )
 
     @property

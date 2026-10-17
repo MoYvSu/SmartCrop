@@ -14,6 +14,7 @@ interface Props {
   reasons: SelectionReason[];
   note: string;
   disabled?: boolean;
+  persistent?: boolean;
   onReasonsChange: (reasons: SelectionReason[]) => void;
   onNoteChange: (note: string) => void;
 }
@@ -22,6 +23,7 @@ export function SelectionReasonPanel({
   reasons,
   note,
   disabled = false,
+  persistent = false,
   onReasonsChange,
   onNoteChange,
 }: Props) {
@@ -36,7 +38,7 @@ export function SelectionReasonPanel({
   return (
     <fieldset className="selection-reason-panel" disabled={disabled}>
       <legend><MessageSquareText aria-hidden="true" size={17} />记录选择依据</legend>
-      <p>按需记录本次选择，内容仅随当前任务暂存，本版本不用于模型训练。</p>
+      <p>{persistent ? "按需记录本次选择，说明随作品保存，本版本不用于模型训练。" : "按需记录本次选择，内容仅随当前任务暂存，本版本不用于模型训练。"}</p>
       <div className="reason-options">
         {REASONS.map((reason) => (
           <button

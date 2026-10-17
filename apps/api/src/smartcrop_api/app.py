@@ -10,8 +10,8 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, TypeVar
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 from smartcrop_contracts import (
@@ -38,6 +38,10 @@ from smartcrop_image_core import (
     save_preview,
 )
 from smartcrop_runtime import JobRecord, JobStore, Settings, cleanup_expired_jobs
+
+from .auth import AuthService, register_auth_routes
+from .preferences import register_preference_routes
+from .projects import register_project_routes
 
 ACCESS_HEADER = "X-SmartCrop-Access"
 T = TypeVar("T")
@@ -275,10 +279,35 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
     # Per-process bound for full-resolution image work. The production CLI runs
     # one API process, so this is also the host-wide limit in the current deployment.
     image_operation_slots = asyncio.Semaphore(resolved.image_decode_concurrency)
+    auth = AuthService(resolved)
+    auth.initialize()
+    app.state.auth = auth
+    register_auth_routes(app, auth)
+    register_preference_routes(app, resolved)
+    register_project_routes(
+        app, resolved, store,
+        job_to_response=lambda record: _job_response(store, record, resolved),
+        image_operation_slots=image_operation_slots,
+    )
 
     @app.middleware("http")
     async def security_headers(request, call_next):
-        response = await call_next(request)
+        response = None
+        parts = request.url.path.strip("/").split("/")
+        if len(parts) >= 3 and parts[:2] == ["v1", "jobs"]:
+            link = await asyncio.to_thread(app.state.projects.get_job_link, parts[2])
+            if link:
+                try:
+                    actor = await asyncio.to_thread(
+                        auth.require_user, request, write=request.method not in {"GET", "HEAD"},
+                    )
+                    if actor.id != link["owner_id"] or link.get("deleted"):
+                        raise HTTPException(status_code=404, detail="作品或任务不存在")
+                    request.state.project_job_authorized = True
+                except HTTPException as exc:
+                    response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        if response is None:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -288,12 +317,15 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
             "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
         )
         if request.url.path.startswith("/v1/"):
-            response.headers["Cache-Control"] = "no-store"
+            response.headers["Cache-Control"] = "private, no-store"
         return response
 
     def require_access(
+        request: Request,
         access_code: Annotated[str | None, Header(alias=ACCESS_HEADER)] = None,
     ) -> None:
+        if getattr(request.state, "project_job_authorized", False):
+            return
         if not resolved.access_code:
             return
         if not access_code or not hmac.compare_digest(access_code, resolved.access_code):
@@ -490,7 +522,14 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         status_code=status.HTTP_202_ACCEPTED,
         dependencies=[access_dependency],
     )
-    async def create_review(job_id: str) -> JobResponse:
+    async def create_review(job_id: str, request: Request) -> JobResponse:
+        if getattr(request.state, "project_job_authorized", False):
+            # A legacy review would create an unlinked task containing a private
+            # project image. This unsupported capability must not bypass ownership.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="作品分析不支持终稿复评，请在工作台自主选择和调整构图",
+            )
         if store.count_queued() >= resolved.queue_limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

@@ -1,0 +1,15 @@
+.project-name-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.project-name-row label { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--muted-foreground); font-size: 12px; }
+.project-name-row input { width: min(360px, 45vw); min-height: 44px; min-width: 0; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--foreground); background: var(--card); font-size: 14px; }
+.project-name-row > span { color: var(--muted-foreground); font-size: 12px; }
+.project-save-error { margin-bottom: 18px; padding: 12px 16px; border: 1px solid var(--danger); border-radius: 8px; background: var(--card); color: var(--danger); font-size: 13px; }
+.project-save-error p { margin: 0 0 6px; }
+.project-save-error button { min-height: 44px; padding: 8px 12px; color: var(--foreground); background: var(--background); border: 1px solid var(--border-strong); border-radius: 8px; }
+.wb-ai-request { margin-bottom: 20px; }
+.wb-ai-request > button { width: 100%; }
+.wb-ai-request > p { margin: 10px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.75; }
+@media (max-width: 600px) {
+  .project-name-row { flex-wrap: wrap; gap: 8px; }
+  .project-name-row label { width: 100%; }
+  .project-name-row input { flex: 1; width: 100%; font-size: 16px; }
+}

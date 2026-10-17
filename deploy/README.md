@@ -67,6 +67,11 @@ SMARTCROP_WEB_DIST=/root/autodl-tmp/SmartCrop/apps/web/dist
 SMARTCROP_WORKER_BACKEND=venus
 SMARTCROP_MODEL_PATH=/root/autodl-tmp/models/Venus-Q-Stage2
 SMARTCROP_LOAD_IN_8BIT=true
+SMARTCROP_DEMO_USERNAME=demo
+SMARTCROP_DEMO_DISPLAY_NAME=演示摄影师
+SMARTCROP_DEMO_PASSWORD=
+SMARTCROP_SESSION_COOKIE_SECURE=true
+SMARTCROP_SESSION_TTL_SECONDS=604800
 SMARTCROP_REPORT_TRANSLATOR=deepseek
 SMARTCROP_DEEPSEEK_API_KEY=replace-with-your-private-api-key
 SMARTCROP_DEEPSEEK_BASE_URL=https://api.deepseek.com
@@ -85,8 +90,8 @@ SMARTCROP_DEEPSEEK_TIMEOUT_SECONDS=12
 推理完成后的结果整理另有翻译预算加 30 秒制品/数据库余量的看门狗，不会因翻译跨过原推理
 截止时间而误杀任务。模型、文件写入或数据库本身的故障仍可能导致任务失败。
 
-升级此版本后应同时重启 API 和 worker。旧 SQLite 数据库会自动增加一个可空的内部阶段时间列，
-不需删库或重新上传历史任务；部署前仍应按原有流程备份运行数据库。`--once` 会检查返回结果是否
+升级此版本后应同时重启 API 和 worker。SQLite 自动创建账号、会话、作品与版本表，保留旧任务；
+不要删库升级。旧临时任务不会自动成为持久作品，已过期任务的图片不能找回。`--once` 会检查返回结果是否
 超时，但只有常驻 supervisor 能强制终止真正卡死的模型或制品处理进程。
 
 ## 启动进程
@@ -116,13 +121,39 @@ set +a
 smartcrop-api --host 127.0.0.1 --port 8000
 ```
 
-不要使用多个 worker；V1 的单 GPU 序列化保证依赖这一约束。`smartcrop-worker` 本身是看门狗，模型在子进程中常驻，任务硬超时后会重建子进程。
+部署采用一个 API 进程、一个 worker；不要使用多 API 进程或多个 worker。SQLite 与文件资源按单主机协调，尚未验收多 API 实例的资源并发操作。单 GPU 推理串行化依赖单 worker；`smartcrop-worker` 本身是看门狗，模型在子进程中常驻，任务硬超时后会重建子进程。
+
+## 演示账号与持久作品
+
+用户名默认 `demo`。`SMARTCROP_DEMO_PASSWORD` 留空时，API 第一次启动随机生成密码到
+`/root/autodl-tmp/smartcrop-data/demo-credentials.txt`，只在受信终端私下查看，不将文件或内容发布到 Git、截图或日志。
+该文件不是网页 API；后续启动沿用数据库中的账号和密码，不重新生成。若已有数据库且凭据文件丢失，
+通过私有环境变量 `SMARTCROP_DEMO_PASSWORD` 设置新密码再重启 API；轮换使旧会话失效。
+如从一开始就使用环境变量密码，不会生成可读密码文件；移除环境变量后也不会重置已存在账号。
+
+同一演示账号的所有访问者共用作品库，不具备不同人员隔离。仅供受控展示，请使用授权素材，
+勿上传敏感照片。原图保存为去除全部元数据的规范化图像，不是原始文件的无损字节备份。
+草稿、归档成片、历史版本位于数据目录 `projects/`，编辑快照和 AI 参考在 SQLite 中，保留至主动删除。
+`SMARTCROP_RETENTION_SECONDS` 只影响临时 `jobs/`，不能用它清理作品库。
+删除项目会清除专属持久资源并阻断关联任务读取；分析任务临时副本仍按原有到期策略清理，
+不承诺备份被同步擦除，也不要把清缓存等同删除作品。
+
+备份或迁移必须保持 **SQLite 与 projects/ 的同一时刻状态**：先停止 API 和 worker，
+确认进程已退出，再完整复制数据目录及实际 `SMARTCROP_DATABASE_PATH` 所在目录（包括残留的 WAL/SHM 文件），
+保留权限；不能只拷贝正在写入的 `.sqlite3` 或单独保存图片。恢复后校验登录、作品打开、编辑和版本下载。
+数据目录若与数据库分开放置，也必须同时备份。不要将运行数据放在 Git 管理的源码目录中。
+
+Linux 限制目录访问权限；Windows 开发机还需检查 NTFS ACL，Python 文件模式不等同 Windows 私有权限。
+首次运行不要在未知凭据文件旁创建新库；初始化遇到不可信文件会拒绝继续，请核实部署路径而非随意删除。
 
 ## HTTPS 与公网入口
 
 API 只监听 `127.0.0.1`。使用平台 HTTPS 网关，或用 Caddy/Nginx 把域名反代到 `127.0.0.1:8000`。入口至少应强制 HTTPS、限制 20 MB 请求体、限制上传速率、不缓存 `/v1`，且不得记录访问码请求头。
 
-如果 AutoDL 只提供临时隧道，仍需在应用侧设置访问码；临时公网 URL 不能视为认证。
+公网入口必须使用 HTTPS，并设置 `SMARTCROP_SESSION_COOKIE_SECURE=true`。仅本机 HTTP 或 SSH 本地转发
+使用 `false`，否则浏览器不会在 HTTP 请求中携带登录 Cookie。账号通过同源 Cookie 会话验证，
+写入还校验防伪请求令牌（CSRF）；前端与 API 应放在同一个域名下，不新增跨域放行。
+共享访问码只保留旧任务工具链兼容，不能替代作品账号登录；临时公网 URL 也不能视为认证。
 
 ## 运行检查
 

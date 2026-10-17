@@ -7,12 +7,13 @@ interface Props {
   onReset: () => void;
   connectionError?: string;
   onReconnect?: () => void;
+  mainId?: string;
 }
 
-export function ProcessingPanel({ job, onReset, connectionError = "", onReconnect }: Props) {
+export function ProcessingPanel({ job, onReset, connectionError = "", onReconnect, mainId = "main-content" }: Props) {
   const ended = job.status === "expired" || job.status === "cancelled";
   return (
-    <main className="processing-shell" id="main-content" tabIndex={-1} aria-live="polite">
+    <main className="processing-shell" id={mainId} tabIndex={-1} aria-live="polite">
       <section className="processing-card">
         <div className="processing-mark">{connectionError ? <Unplug aria-hidden="true" size={32} /> : <Layers3 aria-hidden="true" size={32} />}</div>
         <p className="eyebrow">你的照片已上传</p>

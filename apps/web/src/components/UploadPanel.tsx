@@ -1,19 +1,29 @@
 import { ArrowUpRight, BookOpen, LockKeyhole, ShieldCheck, UploadCloud, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   createAnalysisIntent,
   isCustomRatioValid,
   PUBLICATION_PRESETS,
 } from "../lib/publishing";
 import type { AnalysisIntent, OutputTemplate, RunProvenance, SceneType } from "../types";
+import type { WorkspacePreferences } from "../workspaceApi";
 import { StudioIntro, StudioSections } from "./StudioShowcase";
 
 interface Props {
   accessCode: string;
   onAccessCodeChange: (value: string) => void;
-  onSubmit: (file: File, intent: AnalysisIntent, provenance: RunProvenance) => Promise<void>;
+  onSubmit: (file: File, intent: AnalysisIntent, provenance: RunProvenance, customized?: boolean) => Promise<void>;
   onOpenPregeneratedDemo: (intent: AnalysisIntent) => void;
   busy: boolean;
+  variant?: "showcase" | "workspace";
+  active?: boolean;
+  mainId?: string;
+  persistent?: boolean;
+  defaults?: WorkspacePreferences;
+  defaultsRequired?: boolean;
+  defaultsLoading?: boolean;
+  defaultsError?: string;
+  onRetryDefaults?: () => void;
 }
 
 const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -40,17 +50,47 @@ export function UploadPanel({
   onSubmit,
   onOpenPregeneratedDemo,
   busy,
+  variant = "showcase",
+  active = true,
+  mainId = "main-content",
+  persistent = false,
+  defaults,
+  defaultsRequired = false,
+  defaultsLoading = false,
+  defaultsError = "",
+  onRetryDefaults,
 }: Props) {
+  const componentId = useId();
+  const elementId = (name: string) => `${componentId}-${name}`;
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [scene, setScene] = useState<SceneType>("general");
-  const [outputTemplate, setOutputTemplate] = useState<OutputTemplate>("freeform");
-  const [customRatioWidth, setCustomRatioWidth] = useState(4);
-  const [customRatioHeight, setCustomRatioHeight] = useState(3);
+  const [intent, setIntent] = useState<AnalysisIntent>(defaults?.intent ?? SAMPLE_INTENT);
+  const [customRatio, setCustomRatio] = useState(defaults?.intent.custom_ratio ?? { width: 4, height: 3 });
+  const [customized, setCustomized] = useState(false);
+  const scene = intent.scene;
+  const outputTemplate = intent.output_template ?? (intent.aspect_ratio === "free" ? "freeform" : "retained");
+  const customRatioWidth = customRatio.width;
+  const customRatioHeight = customRatio.height;
+  const defaultsReady = !defaultsRequired || Boolean(defaults && !defaultsLoading && !defaultsError);
+  useEffect(() => {
+    if (!defaults || customized) return;
+    setIntent(defaults.intent);
+    setCustomRatio(defaults.intent.custom_ratio ?? { width: 4, height: 3 });
+  }, [defaults, customized]);
+  const chooseTemplate = (template: OutputTemplate) => {
+    setCustomized(true);
+    setIntent(createAnalysisIntent(scene, template, customRatio));
+  };
+  const changeCustomRatio = (dimension: "width" | "height", value: number) => {
+    setCustomized(true);
+    const next = { ...customRatio, [dimension]: value };
+    setCustomRatio(next);
+    setIntent({ ...intent, custom_ratio: next });
+  };
 
   useEffect(() => {
     if (!file) {
@@ -86,7 +126,7 @@ export function UploadPanel({
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      if (busy) return;
+      if (busy || !active) return;
       const pasted = firstPastedImage(event.clipboardData?.items);
       if (!pasted) return;
       event.preventDefault();
@@ -94,24 +134,28 @@ export function UploadPanel({
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [busy, choose]);
-
-  const intent = createAnalysisIntent(
-    scene,
-    outputTemplate,
-    { width: customRatioWidth, height: customRatioHeight },
-  );
+  }, [active, busy, choose]);
 
   return (
-    <main className="upload-shell" id="main-content" tabIndex={-1}>
-      <div className="home-kicker"><span className="eyebrow">你的灵感，从这里开始</span><span className="studio-edition">SMARTCROP / CREATIVE STUDIO</span></div>
+    <main className={`upload-shell${variant === "workspace" ? " workspace-import" : ""}`} id={mainId} tabIndex={-1}>
+      {variant === "showcase" ? (
+        <div className="home-kicker"><span className="eyebrow">你的灵感，从这里开始</span><span className="studio-edition">SMARTCROP / CREATIVE STUDIO</span></div>
+      ) : (
+        <div className="workspace-import-heading"><p className="eyebrow">Your creative workspace</p><h1>构图工作台</h1><p>{persistent ? "导入即建立独立作品草稿，可以直接精修；AI 构图参考按需获取。" : "选一张照片，从新的取景开始。本阶段沿用临时分析任务，尚未启用自动归档。"}</p></div>
+      )}
       <div className="creation-grid">
-      <StudioIntro />
-      <section className="upload-card" id="upload-workbench" aria-labelledby="upload-title">
+      {variant === "showcase" ? <StudioIntro /> : (
+        <section className="workspace-import-stage" aria-label="创作画布说明">
+          <div><strong>把注意力，留给画面。</strong><span>等待导入照片</span></div>
+          <figure><img src="/images/alpine-lake.jpg" alt="用于介绍工作台的山间湖泊照片，并非当前编辑项目" width="1400" height="933" /><figcaption>留下风景，也留下你的视角。<span>摄影示意 · 非 AI 推理结果</span></figcaption></figure>
+          <p>{persistent ? "照片与编辑草稿独立保存，刷新或重新登录后仍可继续。最终构图由你决定，不必先运行模型。" : "分析后即可拖动取景框、切换构图方向，再下载成片。当前页面的调整仅在本次打开期间保留。"}</p>
+        </section>
+      )}
+      <section className="upload-card" id={variant === "showcase" ? "upload-workbench" : elementId("upload-workbench")} aria-labelledby={elementId("upload-title")}>
         <div className="section-heading">
           <div className="upload-title-group">
             <span className="upload-step" aria-hidden="true">01</span>
-            <div><p className="eyebrow">开始创作</p><h2 id="upload-title">选择你的照片</h2></div>
+            <div><p className="eyebrow">开始创作</p><h2 id={elementId("upload-title")}>选择你的照片</h2></div>
           </div>
           <button
             type="button"
@@ -126,7 +170,7 @@ export function UploadPanel({
         <button
           type="button"
           className={`drop-zone ${dragging ? "is-dragging" : ""} ${previewUrl ? "has-preview" : ""}`}
-          aria-describedby={error ? "upload-error" : undefined}
+          aria-describedby={error ? elementId("upload-error") : undefined}
           disabled={busy}
           onClick={() => inputRef.current?.click()}
           onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -165,7 +209,7 @@ export function UploadPanel({
         <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
           {announcement}
         </p>
-        {error && <p className="field-error upload-file-error" id="upload-error" role="alert">{error}</p>}
+        {error && <p className="field-error upload-file-error" id={elementId("upload-error")} role="alert">{error}</p>}
 
         {file && (
           <button
@@ -185,8 +229,8 @@ export function UploadPanel({
 
         <fieldset className="intent-fieldset" disabled={busy}>
           <legend className="card-step-label"><span aria-hidden="true">02</span>告诉我们你的创作意图</legend>
-          <label><span id="scene-label">使用场景</span>
-            <select aria-labelledby="scene-label" value={scene} onChange={(event) => setScene(event.target.value as SceneType)}>
+          <label><span id={elementId("scene-label")}>使用场景</span>
+            <select aria-labelledby={elementId("scene-label")} value={scene} onChange={(event) => { setCustomized(true); setIntent({ ...intent, scene: event.target.value as SceneType }); }}>
               <option value="general">通用构图</option>
               <option value="portrait">人像</option>
               <option value="landscape">风光</option>
@@ -194,12 +238,13 @@ export function UploadPanel({
               <option value="social">社交媒体</option>
             </select>
           </label>
-          <label><span id="output-template-label">发布模板</span>
+          <label><span id={elementId("output-template-label")}>发布模板</span>
             <select
-              aria-labelledby="output-template-label"
+              aria-labelledby={elementId("output-template-label")}
               value={outputTemplate}
-              onChange={(event) => setOutputTemplate(event.target.value as OutputTemplate)}
+              onChange={(event) => chooseTemplate(event.target.value as OutputTemplate)}
             >
+              {outputTemplate === "retained" && <option value="retained">当前画幅 · {intent.aspect_ratio}</option>}
               {PUBLICATION_PRESETS.map((preset) => (
                 <option key={preset.id} value={preset.id}>
                   {preset.name} · {preset.ratioLabel}
@@ -212,33 +257,39 @@ export function UploadPanel({
         <p className="template-description">
           {PUBLICATION_PRESETS.find((preset) => preset.id === outputTemplate)?.description}
         </p>
+        {defaultsRequired && <div className="template-description" aria-live="polite">
+          {defaultsLoading ? <p role="status">正在读取创作偏好…</p> : defaultsError ? <>
+            <p role="alert">创作偏好暂时无法读取。请重试后导入照片。</p>
+            <button type="button" className="text-button" onClick={onRetryDefaults}>重试读取偏好</button>
+          </> : defaults && <p>{customized ? "已调整本次设置，不会更改摄影档案。" : "已采用摄影档案中的创作偏好，可为这张照片调整。"}</p>}
+        </div>}
 
         {outputTemplate === "custom" && (
           <fieldset className="custom-ratio-fieldset" disabled={busy}>
             <legend>自定义宽高比</legend>
-            <label htmlFor="custom-ratio-width">宽
+            <label htmlFor={elementId("custom-ratio-width")}>宽
               <input
-                id="custom-ratio-width"
+                id={elementId("custom-ratio-width")}
                 type="number"
                 inputMode="numeric"
                 min="1"
                 max="100"
                 step="1"
                 value={customRatioWidth}
-                onChange={(event) => setCustomRatioWidth(Number(event.target.value))}
+                onChange={(event) => changeCustomRatio("width", Number(event.target.value))}
               />
             </label>
             <span aria-hidden="true">:</span>
-            <label htmlFor="custom-ratio-height">高
+            <label htmlFor={elementId("custom-ratio-height")}>高
               <input
-                id="custom-ratio-height"
+                id={elementId("custom-ratio-height")}
                 type="number"
                 inputMode="numeric"
                 min="1"
                 max="100"
                 step="1"
                 value={customRatioHeight}
-                onChange={(event) => setCustomRatioHeight(Number(event.target.value))}
+                onChange={(event) => changeCustomRatio("height", Number(event.target.value))}
               />
             </label>
             {!customRatioValid && (
@@ -249,7 +300,7 @@ export function UploadPanel({
           </fieldset>
         )}
 
-        <label className="access-field">
+        {!persistent && <label className="access-field">
           <span><LockKeyhole aria-hidden="true" size={16} />演示访问码</span>
           <input
             type="password"
@@ -259,33 +310,35 @@ export function UploadPanel({
             onChange={(event) => onAccessCodeChange(event.target.value)}
             placeholder="服务器未启用时可留空"
           />
-        </label>
+        </label>}
 
         <button
           type="button"
           className="primary-button"
-          disabled={!file || busy || !customRatioValid}
+          disabled={!file || busy || !customRatioValid || !defaultsReady}
           onClick={() => file && onSubmit(
             file,
             intent,
             "upload",
+            customized,
           )}
         >
           <ScanIcon />
-          {busy ? "正在提交" : "开始美学分析"}
+          {busy ? "正在导入" : persistent ? "导入并开始创作" : "开始美学分析"}
           <ArrowUpRight aria-hidden="true" size={18} />
         </button>
-        <p className="upload-privacy"><ShieldCheck aria-hidden="true" size={14} />1 小时后清理，不进入训练集</p>
+        <p className="upload-privacy"><ShieldCheck aria-hidden="true" size={14} />{persistent ? "登录后存入共用演示账号，保留至主动删除；不进入训练集" : "1 小时后清理，不进入训练集"}</p>
       </section>
       </div>
-      <StudioSections
-        selectedTemplate={outputTemplate}
+      {variant === "showcase" && <StudioSections
+        persistent={persistent}
+        selectedTemplate={outputTemplate === "retained" ? "custom" : outputTemplate}
         disabled={busy}
         onChooseTemplate={(template, nextScene) => {
-          setOutputTemplate(template);
-          setScene(nextScene);
+          setCustomized(true);
+          setIntent(createAnalysisIntent(nextScene, template, customRatio));
         }}
-      />
+      />}
     </main>
   );
 }

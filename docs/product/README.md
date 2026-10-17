@@ -1,5 +1,6 @@
 # Product documents
 
+- [摄影工作室 V2 产品范围](photography-workspace-v2.md)：宽屏、演示账号、独立作品、浏览器图像分析、归档洞察与可保存创作偏好已接入；拍摄参数仍待实现。
 - [CMIT 收尾交付基线](cmit-delivery-baseline.md)：2026-10-17 最后一轮前端审查、修复、实测结果与保留边界。
 
 - [V1 决策简报](v1-decision-brief.md)：经逐项压力测试并由用户批准的产品范围。

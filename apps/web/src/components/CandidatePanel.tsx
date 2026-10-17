@@ -15,6 +15,7 @@ interface Props {
   candidates: CropCandidate[];
   selectedCandidateId: CropCandidate["id"] | null;
   pregenerated?: boolean;
+  referenceOnly?: boolean;
   disabled?: boolean;
   onSelect: (candidate: CropCandidate) => boolean | void;
 }
@@ -24,6 +25,7 @@ export function CandidatePanel({
   candidates,
   selectedCandidateId,
   pregenerated = false,
+  referenceOnly = false,
   disabled = false,
   onSelect,
 }: Props) {
@@ -36,28 +38,38 @@ export function CandidatePanel({
     candidates.find((candidate) => candidate.id === selectedCandidateId) || candidates[0];
   const alternatives = candidates.filter((candidate) => candidate.id !== selectedCandidate.id);
   const selectedCopy = COPY[selectedCandidate.id];
+  const chooseCandidate = (candidate: CropCandidate, restoreToggleFocus = false) => {
+    if (disabled || onSelect(candidate) === false) return;
+    setExpanded(false);
+    setAnnouncement(referenceOnly ? `已采用${COPY[candidate.id].name}构图参考。` : `已选择${COPY[candidate.id].name}。`);
+    if (restoreToggleFocus) toggleRef.current?.focus({ preventScroll: true });
+  };
 
   return (
     <section className="candidate-panel" aria-labelledby="candidate-heading">
       <div className="candidate-heading">
         <div>
           <p className="eyebrow">Composition directions</p>
-          <h2 id="candidate-heading">需要时切换构图方向</h2>
+          <h2 id="candidate-heading">{referenceOnly ? "选择构图参考" : "需要时切换构图方向"}</h2>
         </div>
-        <span>{pregenerated ? "固定示例方向，由你决定" : "AI 提供方向，由你决定"}</span>
+        <span>{referenceOnly ? "仅供参考，主动采用才会改变取景" : pregenerated ? "固定示例方向，由你决定" : "AI 提供方向，由你决定"}</span>
       </div>
 
-      <article className="candidate-current" aria-label={`当前方案：${selectedCopy.name}`}>
+      <article className="candidate-current" aria-label={`${referenceOnly ? "构图参考" : "当前方案"}：${selectedCopy.name}`}>
         <span className="candidate-preview candidate-preview-current">
           <CropPreview imageUrl={imageUrl} crop={selectedCandidate.crop} />
         </span>
         <span className="candidate-copy">
-          <span className="candidate-state"><Check size={14} aria-hidden="true" />当前方案</span>
+          <span className="candidate-state">{referenceOnly ? <Frame size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{referenceOnly ? "参考方向" : "当前方案"}</span>
           <strong><selectedCopy.Icon size={17} aria-hidden="true" />{selectedCopy.name}</strong>
           <small>
             {selectedCopy.note}。
             {pregenerated ? "本地固定示例，未调用模型。" : "AI 已按此偏好独立生成。"}
           </small>
+          {referenceOnly && <button type="button" className="candidate-toggle" disabled={disabled}
+            aria-label={`采用构图参考：${selectedCopy.name}`} onClick={() => chooseCandidate(selectedCandidate)}>
+            采用此构图参考
+          </button>}
         </span>
       </article>
 
@@ -83,13 +95,8 @@ export function CandidatePanel({
               key={candidate.id}
               className="candidate-card"
               disabled={disabled}
-              onClick={() => {
-                if (onSelect(candidate) !== false) {
-                  setExpanded(false);
-                  setAnnouncement(`已选择${name}。`);
-                  toggleRef.current?.focus({ preventScroll: true });
-                }
-              }}
+              aria-label={referenceOnly ? `采用构图参考：${name}` : undefined}
+              onClick={() => chooseCandidate(candidate, true)}
             >
               <span className="candidate-preview"><CropPreview imageUrl={imageUrl} crop={candidate.crop} /></span>
               <span className="candidate-copy">

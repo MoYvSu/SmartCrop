@@ -76,9 +76,10 @@ interface Props {
   selectedTemplate: OutputTemplate;
   disabled: boolean;
   onChooseTemplate: (template: OutputTemplate, scene: SceneType) => void;
+  persistent?: boolean;
 }
 
-export function StudioSections({ selectedTemplate, disabled, onChooseTemplate }: Props) {
+export function StudioSections({ selectedTemplate, disabled, onChooseTemplate, persistent = false }: Props) {
   const selected = SCENES.find((item) => item.id === selectedTemplate);
   return (
     <>
@@ -121,9 +122,9 @@ export function StudioSections({ selectedTemplate, disabled, onChooseTemplate }:
           <p>把繁琐交给工具，<br />把选择留给你。</p>
         </div>
         <ol className="guide-steps">
-          <li><span className="guide-number">01</span><div><h3>上传，设定用途</h3><p>选一张照片，告诉我们使用场景和目标比例。</p></div><ImagePlus aria-hidden="true" size={22} /></li>
-          <li><span className="guide-number">02</span><div><h3>探索，选择方向</h3><p>在平衡构图、主体优先和环境叙事中选择喜欢的方向。</p></div><Sparkles aria-hidden="true" size={22} /></li>
-          <li><span className="guide-number">03</span><div><h3>精修，下载成片</h3><p>拖动取景框、微调留白，下载原分辨率裁剪图。</p></div><ArrowDownToLine aria-hidden="true" size={22} /></li>
+          <li><span className="guide-number">01</span><div><h3>{persistent ? "导入，建立草稿" : "上传，设定用途"}</h3><p>{persistent ? "登录后导入照片，选择用途与比例，建立独立作品草稿。" : "选一张照片，告诉我们使用场景和目标比例。"}</p></div><ImagePlus aria-hidden="true" size={22} /></li>
+          <li><span className="guide-number">02</span><div><h3>{persistent ? "精修，参考按需" : "探索，选择方向"}</h3><p>{persistent ? "直接拖动取景框精修；需要灵感时，再获取 AI 构图参考。" : "在平衡构图、主体优先和环境叙事中选择喜欢的方向。"}</p></div><Sparkles aria-hidden="true" size={22} /></li>
+          <li><span className="guide-number">03</span><div><h3>{persistent ? "归档，下载成片" : "精修，下载成片"}</h3><p>{persistent ? "草稿自动保存，完成后归档；也可直接下载当前裁剪图。" : "拖动取景框、微调留白，下载原分辨率裁剪图。"}</p></div><ArrowDownToLine aria-hidden="true" size={22} /></li>
         </ol>
       </section>
       <aside className="creative-note">

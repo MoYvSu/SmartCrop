@@ -1,601 +1,322 @@
-import { Check, Download, ImagePlus, LoaderCircle, RotateCcw, Save, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Crop, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 
-import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
-import { CandidatePanel } from "./components/CandidatePanel";
-import { CompositionTools } from "./components/CompositionTools";
-import { CropEditor } from "./components/CropEditor";
-import { CropPreview } from "./components/CropPreview";
-import { ProcessingPanel } from "./components/ProcessingPanel";
-import { ReportPanel } from "./components/ReportPanel";
-import { SelectionReasonPanel } from "./components/SelectionReasonPanel";
+import { ApiError } from "./api";
+import { LoginPanel } from "./components/LoginPanel";
+import { ProjectEditor } from "./components/ProjectEditor";
+import type { ProjectEditorHandle } from "./components/ProjectEditor";
+import { SampleEditor } from "./components/SampleEditor";
+import type { SampleEditorHandle } from "./components/SampleEditor";
 import { UploadPanel } from "./components/UploadPanel";
-import { cropEquals, fitCropToIntent, normalizedAspectRatio } from "./lib/crop";
-import { createPregeneratedJob, DEMO_IMAGE_URL, downloadDemoCrop } from "./lib/demo";
-import { intentRatioLabel, PUBLICATION_PRESETS } from "./lib/publishing";
-import type {
-  AnalysisIntent,
-  CompositionGuide,
-  CropBox,
-  CropCandidate,
-  JobResponse,
-  RunProvenance,
-  SelectionReason,
-} from "./types";
+import { InsightsPage, LibraryPage, OverviewPage, ProfilePage } from "./components/WorkspacePages";
+import { WorkspaceShell } from "./components/WorkspaceShell";
+import { useAppRoute } from "./lib/navigation";
+import type { NavigationTarget, WorkspacePage } from "./lib/navigation";
+import { createAnalysisIntent } from "./lib/publishing";
+import { DEMO_IMAGE_URL } from "./lib/demo";
+import { clearImageAnalysisCache } from "./lib/browserImageAnalysis";
+import { clearArchivedInsightsCache } from "./hooks/useArchivedInsights";
+import { useWorkspacePreferences } from "./hooks/useWorkspacePreferences";
+import type { AnalysisIntent } from "./types";
+import { clearWorkspaceSession, createProject, deleteProject, getAuthSession, getProject, listProjects, login, logout } from "./workspaceApi";
+import type { ProjectDetail, ProjectSummary, WorkspaceUser } from "./workspaceApi";
 
-const TERMINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
-const DEFAULT_MANUAL_CROP: CropBox = { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
-type Activity = "analysis" | "save" | "download";
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function errorMessage(caught: unknown, fallback: string): string {
-  if (caught instanceof TypeError) return "网络连接失败，请检查网络和服务后重试。";
-  return caught instanceof Error ? caught.message : fallback;
-}
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : "操作失败，请稍后重试。";
 
 export default function App() {
-  const [accessCode, setAccessCode] = useState(() => sessionStorage.getItem("smartcrop-access") || "");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [job, setJob] = useState<JobResponse | null>(null);
-  const [draftCrop, setDraftCrop] = useState<CropBox | null>(null);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<CropCandidate["id"] | null>(null);
-  const [selectionReasons, setSelectionReasons] = useState<SelectionReason[]>([]);
-  const [selectionNote, setSelectionNote] = useState("");
-  const [guides, setGuides] = useState<CompositionGuide[]>(["thirds"]);
-  const [provenance, setProvenance] = useState<RunProvenance>("upload");
-  const [phase, setPhase] = useState<"upload" | "processing" | "result">("upload");
-  const [activity, setActivity] = useState<Activity | null>(null);
+  const { route, navigate } = useAppRoute();
+  const [user, setUser] = useState<WorkspaceUser | null>(null);
+  const userRef = useRef<WorkspaceUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [projects, setProjects] = useState<ProjectSummary[] | undefined>(undefined);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
+  const listGeneration = useRef(0);
+  const projectMutation = useRef(0);
+  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [mode, setMode] = useState<"new" | "project" | "sample">("new");
+  const [sampleIntent, setSampleIntent] = useState<AnalysisIntent | null>(null);
+  const [sampleGeneration, setSampleGeneration] = useState(0);
+  const [importGeneration, setImportGeneration] = useState(0);
+  const editor = useRef<ProjectEditorHandle>(null);
+  const sampleEditor = useRef<SampleEditorHandle>(null);
+  const [editorStatus, setEditorStatus] = useState("尚未导入照片");
+  const setStatus = useCallback((value: string) => setEditorStatus(value), []);
+  const [busy, setBusy] = useState(false);
+  const importing = useRef(false);
+  const pendingImport = useRef<{ file: File; intent: AnalysisIntent; useDefaults: boolean } | null>(null);
+  const preferencesDirty = useRef(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [connectionError, setConnectionError] = useState("");
-  // A workspace generation rejects late responses even if abort arrives after
-  // a request has completed. The controller also locks double-clicks immediately.
-  const pollToken = useRef(0);
-  const request = useRef<AbortController | null>(null);
-  const previousPhase = useRef(phase);
-  const busy = activity !== null;
+  const [loadingProject, setLoadingProject] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [reloadTick, setReloadTick] = useState(0);
+  const requestedId = route.kind === "workspace" && route.page === "workbench" ? route.projectId : undefined;
+  const isWorkspace = route.kind === "workspace";
+  const page = isWorkspace ? route.page : "overview";
+  const routeKey = isWorkspace ? `${route.page}/${route.projectId || ""}` : route.kind;
+
+  const expired = useCallback(() => {
+    clearArchivedInsightsCache(); clearImageAnalysisCache();
+    userRef.current = null;
+    setUser(null);
+    clearWorkspaceSession();
+    setAuthError("登录已过期。请重新登录，页面内尚未保存的调整会保留等待重试。");
+    listGeneration.current += 1;
+    setProjects(undefined);
+  }, []);
+  const accountPreferences = useWorkspacePreferences(user, userRef, expired);
 
   useEffect(() => {
-    sessionStorage.setItem("smartcrop-access", accessCode);
-  }, [accessCode]);
+    const controller = new AbortController();
+    getAuthSession(controller.signal).then(session => {
+      if (controller.signal.aborted) return;
+      userRef.current = session.user; setUser(session.user);
+    }).catch(caught => {
+      if (!controller.signal.aborted) setAuthError(`暂时无法连接登录服务：${errorMessage(caught)}`);
+    }).finally(() => { if (!controller.signal.aborted) setAuthReady(true); });
+    return () => controller.abort();
+  }, []);
 
-  useEffect(() => () => {
-    if (sourceUrl.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
-  }, [sourceUrl]);
-
-  useEffect(() => () => {
-    pollToken.current += 1;
-    request.current?.abort();
-    request.current = null;
+  const refreshProjects = useCallback(async () => {
+    if (!userRef.current) return;
+    const generation = ++listGeneration.current;
+    setProjectsLoading(true); setProjectsError("");
+    try {
+      while (generation === listGeneration.current && userRef.current) {
+        const snapshot = projectMutation.current;
+        const items = await listProjects();
+        if (generation !== listGeneration.current || !userRef.current) return;
+        // A slow list response cannot erase a project just imported, saved or
+        // deleted in this tab. Read again after concurrent local mutations.
+        if (snapshot !== projectMutation.current) continue;
+        setProjects(items);
+        break;
+      }
+    } catch (caught) {
+      if (generation !== listGeneration.current) return;
+      setProjectsError(errorMessage(caught));
+      if (caught instanceof ApiError && caught.status === 401) expired();
+    } finally { if (generation === listGeneration.current) setProjectsLoading(false); }
+  }, [expired]);
+  useEffect(() => { if (user) void refreshProjects(); }, [user, refreshProjects]);
+  const saved = useCallback((updated: ProjectDetail) => {
+    if (!userRef.current) return;
+    projectMutation.current += 1;
+    setProject(current => current?.id === updated.id ? updated : current);
+    setProjects(current => [updated, ...(current || []).filter(item => item.id !== updated.id)]);
   }, []);
 
   useEffect(() => {
-    if (previousPhase.current === phase) return undefined;
-    previousPhase.current = phase;
-    const frame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0 });
+    if (!requestedId || !user || (mode === "project" && project?.id === requestedId)) {
+      setLoadingProject(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingProject(true); setLoadError("");
+    const load = async () => {
+      try {
+        await editor.current?.flush();
+        const loaded = await getProject(requestedId, controller.signal);
+        if (controller.signal.aborted) return;
+        setProject(loaded); setMode("project"); setSampleIntent(null); setEditorStatus("草稿已保存");
+      } catch (caught) {
+        if (controller.signal.aborted) return;
+        setLoadError(errorMessage(caught));
+        if (caught instanceof ApiError && caught.status === 401) expired();
+      } finally { if (!controller.signal.aborted) setLoadingProject(false); }
+    };
+    void load();
+    return () => controller.abort();
+  }, [requestedId, user, mode, project?.id, reloadTick, expired]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "instant" });
       document.getElementById("main-content")?.focus({ preventScroll: true });
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [phase]);
+    return () => cancelAnimationFrame(frame);
+  }, [routeKey, authReady, user?.id, loadingProject]);
 
-  const clearWorkspace = () => {
-    pollToken.current += 1;
-    request.current?.abort();
-    request.current = null;
-    setSourceUrl("");
-    setJob(null);
-    setDraftCrop(null);
-    setSelectedCandidateId(null);
-    setSelectionReasons([]);
-    setSelectionNote("");
-    setGuides(["thirds"]);
-    setProvenance("upload");
-    setError("");
-    setNotice("");
-    setConnectionError("");
-    setActivity(null);
-    setPhase("upload");
-  };
-
-  const beginOperation = (nextActivity: Activity) => {
-    if (request.current) return null;
-    const controller = new AbortController();
-    request.current = controller;
-    setActivity(nextActivity);
-    setError("");
-    setNotice("");
-    return { token: pollToken.current, controller };
-  };
-
-  const isCurrent = (token: number, controller: AbortController) => (
-    token === pollToken.current && request.current === controller && !controller.signal.aborted
-  );
-
-  const endOperation = (token: number, controller: AbortController) => {
-    if (!isCurrent(token, controller)) return;
-    request.current = null;
-    setActivity(null);
-  };
-
-  const finishAnalysis = (current: JobResponse) => {
-    setConnectionError("");
-    if (current.status === "failed") {
-      setDraftCrop(fitCropToIntent(
-        DEFAULT_MANUAL_CROP,
-        current.intent,
-        current.image_width,
-        current.image_height,
-      ));
-      setSelectedCandidateId(null);
-      setPhase("result");
-      return;
-    }
-    if (current.status !== "succeeded" || !current.final_crop) {
-      setError(current.status === "expired"
-        ? "任务已过期，请返回上传页重新选择照片。"
-        : current.error?.message || "任务未能完成，请返回上传页重试。");
-      return;
-    }
-    setDraftCrop(current.final_crop);
-    setSelectedCandidateId(current.selected_candidate_id || current.candidates[0]?.id || null);
-    setSelectionReasons(current.selection_reasons || []);
-    setSelectionNote(current.selection_note || "");
-    setPhase("result");
-  };
-
-  const pollJob = async (initial: JobResponse, token: number, controller: AbortController) => {
-    let current = initial;
-    while (!TERMINAL.has(current.status)) {
-      await sleep(1500);
-      if (!isCurrent(token, controller)) return;
-      current = await getJob(current.id, accessCode, controller.signal);
-      if (!isCurrent(token, controller)) return;
-      setJob(current);
-    }
-    if (isCurrent(token, controller)) finishAnalysis(current);
-  };
-
-  const analysisFailed = (caught: unknown, created: JobResponse | null) => {
-    if (created) {
-      if (caught instanceof ApiError && (caught.status === 404 || caught.status === 410)) {
-        setJob((current) => current ? { ...current, status: "expired" } : current);
-        setError("任务已过期，请返回上传页重新选择照片。");
-        setConnectionError("");
-      } else {
-        setConnectionError(errorMessage(caught, "暂时无法获取任务状态。"));
-      }
-      return;
-    }
-    setError(errorMessage(caught, "提交失败，请稍后重试"));
-    setPhase("upload");
-  };
-
-  const analyze = async (
-    file: File,
-    intent: AnalysisIntent,
-    runProvenance: RunProvenance,
-  ) => {
-    if (request.current) return;
-    pollToken.current += 1;
-    const operation = beginOperation("analysis");
-    if (!operation) return;
-    const { token, controller } = operation;
-    const localUrl = URL.createObjectURL(file);
-    setSourceUrl(localUrl);
-    setProvenance(runProvenance);
-    setJob(null);
-    setDraftCrop(null);
-    setSelectedCandidateId(null);
-    setSelectionReasons([]);
-    setSelectionNote("");
-    setConnectionError("");
-    let created: JobResponse | null = null;
-    try {
-      created = await createJob(file, intent, accessCode, controller.signal);
-      if (!isCurrent(token, controller)) return;
-      setJob(created);
-      setPhase("processing");
-      await pollJob(created, token, controller);
-    } catch (caught) {
-      if (isCurrent(token, controller)) analysisFailed(caught, created);
-    } finally {
-      endOperation(token, controller);
-    }
-  };
-
-  const reconnect = async () => {
-    if (!job) return;
-    const operation = beginOperation("analysis");
-    if (!operation) return;
-    const { token, controller } = operation;
-    setConnectionError("");
-    try {
-      const current = await getJob(job.id, accessCode, controller.signal);
-      if (!isCurrent(token, controller)) return;
-      setJob(current);
-      await pollJob(current, token, controller);
-    } catch (caught) {
-      if (isCurrent(token, controller)) analysisFailed(caught, job);
-    } finally {
-      endOperation(token, controller);
-    }
-  };
-
-  const openPregeneratedDemo = (intent: AnalysisIntent) => {
-    if (request.current) return;
-    pollToken.current += 1;
-    const demo = createPregeneratedJob(intent);
-    setSourceUrl(DEMO_IMAGE_URL);
-    setJob(demo);
-    setDraftCrop(demo.final_crop);
-    setSelectedCandidateId(demo.selected_candidate_id);
-    setSelectionReasons([]);
-    setSelectionNote("");
-    setGuides(["thirds"]);
-    setProvenance("pregenerated");
-    setError("");
-    setNotice("");
-    setConnectionError("");
-    setActivity(null);
-    setPhase("result");
-  };
-
-  const cropDirty = Boolean(
-    draftCrop && (!job?.final_crop || !cropEquals(job.final_crop, draftCrop)),
-  );
-  const selectionDirty = Boolean(
-    selectedCandidateId && selectedCandidateId !== job?.selected_candidate_id,
-  );
-  const reasonDirty = Boolean(
-    job && (
-      selectionNote.trim() !== (job.selection_note || "")
-      || selectionReasons.join("|") !== (job.selection_reasons || []).join("|")
-    ),
-  );
-  const confirmationPending = Boolean(job && !job.selection_confirmed);
-  const hasPendingChanges = cropDirty || selectionDirty || reasonDirty || confirmationPending;
-  const jobExpired = job?.status === "expired";
-  const editingLocked = busy || jobExpired;
-  const manualOnly = Boolean(job && (job.manual_only || !job.report));
-
-  const reset = () => {
-    if (phase === "result" && request.current) return;
-    if (phase === "result" && (cropDirty || selectionDirty || reasonDirty)
-      && !window.confirm("当前还有未保存的调整，离开后将丢失。是否重新选择照片？")) return;
-    clearWorkspace();
-  };
-
-  const persistCrop = async (token: number, controller: AbortController): Promise<JobResponse | null> => {
-    if (!job || !draftCrop) return null;
-    if (provenance === "pregenerated") {
-      const referenceCrop =
-        job.candidates.find((candidate) => candidate.id === selectedCandidateId)?.crop
-        || job.ai_crop;
-      const updated: JobResponse = {
-        ...job,
-        selected_candidate_id: selectedCandidateId,
-        final_crop: draftCrop,
-        manual_adjusted: referenceCrop ? !cropEquals(referenceCrop, draftCrop) : true,
-        selection_confirmed: true,
-        selection_reasons: selectionReasons,
-        selection_note: selectionNote.trim() || null,
-      };
-      setJob(updated);
-      return updated;
-    }
-    const updated = await updateCrop(
-      job.id,
-      draftCrop,
-      accessCode,
-      selectedCandidateId || undefined,
-      selectionReasons,
-      selectionNote.trim() || undefined,
-      controller.signal,
-    );
-    if (!isCurrent(token, controller)) return null;
-    setJob(updated);
-    setDraftCrop(updated.final_crop);
-    setSelectedCandidateId(updated.selected_candidate_id || selectedCandidateId);
-    setSelectionReasons(updated.selection_reasons || []);
-    setSelectionNote(updated.selection_note || "");
-    return updated;
-  };
-
-  const resultFailed = (caught: unknown, fallback: string) => {
-    if (caught instanceof ApiError && (caught.status === 404 || caught.status === 410)) {
-      setJob((current) => current ? { ...current, status: "expired" } : current);
-      setError("任务已过期，无法继续保存或下载。请重新上传照片。");
-      return;
-    }
-    setError(errorMessage(caught, fallback));
-  };
-
-  const saveCrop = async () => {
-    if (jobExpired) return;
-    const operation = beginOperation("save");
-    if (!operation) return;
-    const { token, controller } = operation;
-    try {
-      const updated = await persistCrop(token, controller);
-      if (updated && isCurrent(token, controller)) setNotice("当前方案已保存，可以下载成片。");
-    } catch (caught) {
-      if (isCurrent(token, controller)) resultFailed(caught, "保存裁剪失败");
-    } finally {
-      endOperation(token, controller);
-    }
-  };
-
-  const download = async () => {
-    if (!job || jobExpired) return;
-    const operation = beginOperation("download");
-    if (!operation) return;
-    const { token, controller } = operation;
-    try {
-      let current = job;
-      if (hasPendingChanges) {
-        const updated = await persistCrop(token, controller);
-        if (!updated || !isCurrent(token, controller)) return;
-        current = updated;
-      }
-      if (provenance === "pregenerated" && current.final_crop) {
-        await downloadDemoCrop(
-          sourceUrl,
-          current.final_crop,
-          `SmartCrop_${current.id.slice(0, 8)}`,
-        );
-      } else if (current.artifacts.crop) {
-        await downloadArtifact(
-          current.artifacts.crop,
-          accessCode,
-          `SmartCrop_${current.id.slice(0, 8)}`,
-          controller.signal,
-        );
-      } else {
-        throw new Error("成片暂不可下载，请重新保存当前方案。");
-      }
-      if (isCurrent(token, controller)) setNotice("下载已开始，请在浏览器下载列表中查看成片。");
-    } catch (caught) {
-      if (isCurrent(token, controller)) resultFailed(caught, "下载失败，请重试");
-    } finally {
-      endOperation(token, controller);
-    }
-  };
-
-  const selectCandidate = (candidate: CropCandidate): boolean => {
-    if (request.current || jobExpired) return false;
-    const currentCropIsGenerated = Boolean(
-      draftCrop && job?.candidates.some((item) => cropEquals(item.crop, draftCrop)),
-    );
-    if (
-      draftCrop
-      && !currentCropIsGenerated
-      && !window.confirm("切换构图方向会替换你在画布上的当前调整。是否继续？")
-    ) {
-      return false;
-    }
-    setDraftCrop(candidate.crop);
-    setSelectedCandidateId(candidate.id);
-    setNotice("");
+  const prepareToLeave = async () => {
+    if (mode === "sample" && sampleEditor.current?.isDirty()
+      && !window.confirm("离开样例会放弃尚未确认的样例调整，是否继续？")) return false;
+    if (mode === "project") await editor.current?.flush();
     return true;
   };
-
-  const restoreAiSuggestion = () => {
-    if (request.current || jobExpired) return;
-    const aiCrop = job?.ai_crop;
-    if (!job || !aiCrop) return;
-    setDraftCrop(aiCrop);
-    const sourceCandidate = job.candidates.find((candidate) => cropEquals(candidate.crop, aiCrop));
-    setSelectedCandidateId(sourceCandidate?.id || job.selected_candidate_id || null);
-    setNotice("");
+  const newCreation = async () => {
+    if (importing.current) return;
+    try {
+      if (!await prepareToLeave()) return;
+      setMode("new"); setProject(null); setSampleIntent(null); setError(""); setEditorStatus("尚未导入照片");
+      setImportGeneration(value => value + 1);
+      if (userRef.current) void accountPreferences.load(true).catch(() => undefined);
+      navigate("workbench");
+    } catch (caught) { setError(errorMessage(caught)); }
+  };
+  const openSample = async (intent = createAnalysisIntent("general", "freeform", { width: 4, height: 3 })) => {
+    try {
+      if (!await prepareToLeave()) return;
+      setMode("sample"); setProject(null); setSampleIntent(intent); setSampleGeneration(value => value + 1);
+      setError(""); navigate("workbench");
+    } catch (caught) { setError(errorMessage(caught)); }
+  };
+  const importPhoto = async (file: File, intent: AnalysisIntent, useDefaults = false) => {
+    if (!userRef.current) {
+      pendingImport.current = { file, intent, useDefaults }; navigate("login"); return;
+    }
+    if (importing.current) return;
+    importing.current = true; setBusy(true); setError("");
+    try {
+      if (!await prepareToLeave()) return;
+      const defaults = await accountPreferences.load();
+      const created = await createProject(file, useDefaults ? defaults.intent : intent);
+      projectMutation.current += 1;
+      setProject(created); setMode("project"); setSampleIntent(null); setEditorStatus("草稿已保存");
+      setProjects(current => [created, ...(current || []).filter(item => item.id !== created.id)]);
+      pendingImport.current = null;
+      navigate({ page: "workbench", projectId: created.id });
+    } catch (caught) {
+      setError(errorMessage(caught));
+      if (caught instanceof ApiError && caught.status === 401) {
+        pendingImport.current = { file, intent, useDefaults }; expired();
+      }
+    } finally { importing.current = false; setBusy(false); }
+  };
+  const signIn = async (username: string, password: string) => {
+    if (loginBusy) return;
+    setLoginBusy(true); setAuthError("");
+    try {
+      const session = await login(username, password);
+      userRef.current = session.user; setUser(session.user);
+      if (pendingImport.current) {
+        const pending = pendingImport.current;
+        await importPhoto(pending.file, pending.intent, pending.useDefaults);
+      } else if (route.kind === "login" || route.kind === "home") navigate("overview");
+    } catch (caught) { setAuthError(errorMessage(caught)); }
+    finally { setLoginBusy(false); }
+  };
+  const signOut = async () => {
+    if (logoutBusy || importing.current) return;
+    if (preferencesDirty.current && !window.confirm("创作偏好尚未保存，退出会放弃这些修改。是否继续？")) return;
+    setLogoutBusy(true); setError("");
+    try {
+      try { await editor.current?.flush(); }
+      catch {
+        if (!window.confirm("仍有未保存的调整。退出会放弃这些本地调整，是否继续？")) return;
+      }
+      await logout();
+      accountPreferences.reset(); preferencesDirty.current = false;
+      clearArchivedInsightsCache(); clearImageAnalysisCache();
+      userRef.current = null; setUser(null); setProjects(undefined); setProject(null); setMode("new"); setSampleIntent(null);
+      pendingImport.current = null; listGeneration.current += 1; setAuthError(""); navigate("/");
+    } catch (caught) { setError(errorMessage(caught)); }
+    finally { setLogoutBusy(false); }
+  };
+  const remove = async (id: string) => {
+    await deleteProject(id);
+    clearArchivedInsightsCache(); clearImageAnalysisCache();
+    projectMutation.current += 1;
+    setProjects(current => current?.filter(item => item.id !== id));
+    if (project?.id === id) { setProject(null); setMode("new"); setEditorStatus("作品已删除"); }
+  };
+  const openProject = async (id: string) => {
+    try {
+      if (await prepareToLeave()) navigate({ page: "workbench", projectId: id });
+    } catch (caught) { setError(errorMessage(caught)); }
+  };
+  const navigatePage = (target: NavigationTarget) => {
+    if (target === "workbench" && mode === "project" && project) navigate({ page: "workbench", projectId: project.id });
+    else navigate(target);
+  };
+  const follow = (event: MouseEvent<HTMLAnchorElement>, target: NavigationTarget) => {
+    if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault(); navigatePage(target);
+  };
+  const isSampleVisible = isWorkspace && page === "workbench" && !requestedId && mode === "sample" && !!sampleIntent;
+  const canView = (authReady && !!user) || isSampleVisible;
+  const showShell = isWorkspace && (canView || !authReady);
+  const showLogin = route.kind === "login" || (isWorkspace && authReady && !canView);
+  const isProjectVisible = isWorkspace && authReady && page === "workbench" && !!user && mode === "project"
+    && !!project && (!requestedId || requestedId === project.id) && !loadingProject;
+  const isUploadVisible = isWorkspace && authReady && page === "workbench" && !!user && !requestedId && mode === "new";
+  const loginPanel = <LoginPanel busy={loginBusy || busy} error={authError} onSubmit={(name, password) => void signIn(name, password)} onBack={() => navigate("/")} />;
+  const session = mode === "sample" ? {
+    imageUrl: DEMO_IMAGE_URL, label: "构图静物 · 固定使用样例", phase: "result" as const,
+    provenance: "pregenerated" as const, status: "succeeded" as const, hasPendingChanges: editorStatus.includes("未确认"),
+  } : undefined;
+  const pageProps = {
+    onNavigate: (target: WorkspacePage) => navigatePage(target),
+    onNewCreation: () => void newCreation(), onOpenSample: () => void openSample(), session,
+    user: user || undefined, projects, projectsLoading, projectsError, onRefreshProjects: () => void refreshProjects(),
+    onOpenProject: (id: string) => void openProject(id), onDeleteProject: remove,
+    preferences: accountPreferences.preferences, preferencesLoading: accountPreferences.loading,
+    preferencesError: accountPreferences.error,
+    onRefreshPreferences: () => { void accountPreferences.load(true).catch(() => undefined); },
+    onSavePreferences: accountPreferences.save,
+    onPreferencesDirtyChange: (dirty: boolean) => { preferencesDirty.current = dirty; },
+  };
+  const importDefaults = {
+    defaults: accountPreferences.preferences, defaultsRequired: !!user,
+    defaultsLoading: accountPreferences.loading, defaultsError: accountPreferences.error,
+    onRetryDefaults: () => { void accountPreferences.load(true).catch(() => undefined); },
   };
 
-  const toggleGuide = (guide: CompositionGuide) => {
-    setGuides((current) => (
-      current.includes(guide)
-        ? current.filter((candidate) => candidate !== guide)
-        : [...current, guide]
-    ));
-  };
-
-  const aspectRatio = job
-    ? normalizedAspectRatio(
-      job.intent.aspect_ratio,
-      job.image_width,
-      job.image_height,
-      job.intent.custom_ratio,
-    )
-    : null;
-  const reportScopeChanged = Boolean(
-    job?.ai_crop && draftCrop && !cropEquals(job.ai_crop, draftCrop),
-  );
-  const currentStep = phase === "upload" ? 0 : phase === "processing" ? 1 : 2;
-
-  return (
-    <>
-      <a className="skip-link" href="#main-content">跳到主要内容</a>
-      <div className="desktop-app">
-        <header className="app-header">
-          <a className="brand" href="/" onClick={(event) => { event.preventDefault(); reset(); }}>
-            <span className="brand-mark" aria-hidden="true"><CropMark /></span>
-            <span><strong>SmartCrop</strong><small>美境智剪</small></span>
-          </a>
-          <nav className="header-nav" aria-label="主导航">
-            <a href={phase === "upload" ? "#upload-workbench" : "#main-content"} className="is-active" aria-current="page">创作工作台</a>
-            {phase === "upload" && <><a href="#inspiration">构图灵感</a><a href="#guide">使用指南</a></>}
-          </nav>
-          <div className="header-trust"><ShieldCheck aria-hidden="true" size={17} />任务文件 1 小时后自动清理</div>
-        </header>
-
-        <div className="workflow-bar">
-          <ol className="workflow-steps" aria-label="创作进度">
-            {["上传照片", "AI 构图", "精修与下载"].map((label, index) => (
-              <li className={index === currentStep ? "is-current" : index < currentStep ? "is-complete" : ""} key={label} aria-current={index === currentStep ? "step" : undefined}>
-                <span className="step-number">{index < currentStep ? <Check aria-hidden="true" size={13} /> : `0${index + 1}`}</span>{label}
-              </li>
-            ))}
-          </ol>
-          <span className="workflow-caption">留住精彩，只需一个新视角</span>
+  return <>
+    <a className="skip-link" href="#main-content">跳到主要内容</a>
+    {/* Keep the editor alive through page changes and session reauthentication. */}
+    <div hidden={!showShell}>
+      <WorkspaceShell page={page} status={user || isSampleVisible ? editorStatus : "请登录演示账号"}
+        user={user || undefined} onLogout={() => void signOut()} logoutBusy={logoutBusy || busy} onNavigate={navigatePage}>
+        {error && <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")}>关闭</button></div>}
+        <div hidden={!isProjectVisible}>
+          {mode === "project" && project && <main className="workspace-main" id={isProjectVisible ? "main-content" : "project-content"} tabIndex={-1}>
+            <ProjectEditor key={project.id} ref={editor} initial={project} active={isProjectVisible && !logoutBusy && !busy} authenticated={!!user}
+              onSaved={saved} onStatus={setStatus} onAuthExpired={expired} onNewCreation={() => void newCreation()} />
+          </main>}
         </div>
-
-        {error && (
-          <div className="global-error" role="alert">
-            <span>{error}</span>
-            <button type="button" onClick={() => setError("")}>关闭</button>
-          </div>
-        )}
-        {notice && <div className="global-notice" role="status"><Check aria-hidden="true" size={17} />{notice}</div>}
-
-        {phase === "upload" && (
-          <UploadPanel
-            accessCode={accessCode}
-            onAccessCodeChange={setAccessCode}
-            onSubmit={analyze}
-            onOpenPregeneratedDemo={openPregeneratedDemo}
-            busy={busy}
-          />
-        )}
-
-        {phase === "processing" && job && <ProcessingPanel
-          job={job}
-          connectionError={connectionError}
-          onReconnect={reconnect}
-          onReset={reset}
-        />}
-
-        {phase === "result" && job && draftCrop && sourceUrl && (
-          <main className="result-shell" id="main-content" tabIndex={-1}>
-            <div className="result-page-heading">
-              <div><p className="eyebrow">Your creative workspace</p><h1>让这一帧，恰到好处。</h1></div>
-              <span className="workspace-status"><span aria-hidden="true" />{jobExpired ? "任务已过期" : job.selection_confirmed && !hasPendingChanges ? "当前方案已确认" : job.selection_confirmed ? "有未应用的调整" : "取景方向，由你决定"}</span>
-            </div>
-            <section className="workspace-panel" aria-labelledby="workspace-heading">
-              <div className="workspace-toolbar">
-                <div>
-                  <p className="eyebrow">{provenance === "pregenerated" ? "固定使用样例" : PUBLICATION_PRESETS.find((preset) => preset.id === job.intent.output_template)?.name || "自由裁剪"} · {intentRatioLabel(job.intent)}</p>
-                  <h2 id="workspace-heading">调整最终构图</h2>
-                </div>
-                <div className="toolbar-actions">
-                  <button type="button" className="secondary-button" disabled={busy} onClick={reset}>
-                    <ImagePlus aria-hidden="true" size={18} />分析另一张
-                  </button>
-                  <button type="button" className="secondary-button" disabled={!hasPendingChanges || editingLocked} onClick={saveCrop} aria-busy={activity === "save"}>
-                    {activity === "save" ? <LoaderCircle className="is-spinning" aria-hidden="true" size={18} /> : <Save aria-hidden="true" size={18} />}
-                    {activity === "save" ? "正在保存" : confirmationPending ? "确认当前方案" : "应用裁剪"}
-                  </button>
-                  <button type="button" className="primary-button compact" disabled={editingLocked} onClick={download} aria-busy={activity === "download"}>
-                    {activity === "download" ? <LoaderCircle className="is-spinning" aria-hidden="true" size={18} /> : <Download aria-hidden="true" size={18} />}
-                    {activity === "download" ? "正在准备下载" : "下载裁剪图"}
-                  </button>
-                </div>
-              </div>
-
-              <div className={`capability-banner status-${job.capability_status}`} role="status">
-                <strong>
-                  {jobExpired ? "任务已过期" : manualOnly ? "手动裁剪可继续使用" : provenance === "pregenerated"
-                    ? "使用样例 · 固定展示"
-                    : job.capability_status === "mock" ? "Mock 演示模式" : "AI 构图建议"}
-                </strong>
-                <span>
-                  {jobExpired ? "当前图片仅供查看，已无法保存或下载。请重新上传照片开始新的任务。" : manualOnly ? "本次分析没有生成可用结果。你可以调整取景框并下载，当前没有 AI 候选或画面分析。" : provenance === "pregenerated"
-                    ? "这是用于了解操作流程的固定结果，没有调用当前模型。"
-                    : job.capability_status === "mock"
-                      ? "当前结果用于验证交互与制品链路。"
-                      : "三个方案按不同构图偏好分别生成，最终方向由你选择。"}
-                </span>
-              </div>
-
-              <div className="comparison-grid">
-                <article className="image-card">
-                  <div className="image-card-heading">
-                    <div><span>原图</span><small>拖动框或四角调整，也可使用方向键</small></div>
-                    {cropDirty && <span className="change-badge">未应用修改</span>}
-                  </div>
-                  <CropEditor
-                    imageUrl={sourceUrl}
-                    imageWidth={job.image_width}
-                    imageHeight={job.image_height}
-                    crop={draftCrop}
-                    onChange={(crop) => {
-                      if (request.current || jobExpired) return;
-                      setDraftCrop(crop);
-                      setNotice("");
-                    }}
-                    aspectRatio={aspectRatio}
-                    guides={guides}
-                    disabled={editingLocked}
-                  />
-                </article>
-                <article className="image-card">
-                  <div className="image-card-heading">
-                    <div><span>裁剪预览</span><small>下载时使用原始分辨率</small></div>
-                    <button
-                      type="button"
-                      className="icon-text-button"
-                      onClick={restoreAiSuggestion}
-                      disabled={editingLocked || !job.ai_crop || cropEquals(job.ai_crop, draftCrop)}
-                    >
-                      <RotateCcw aria-hidden="true" size={16} />
-                      {provenance === "pregenerated" ? "恢复固定示例" : "恢复 AI 建议"}
-                    </button>
-                  </div>
-                  <div className="preview-stage"><CropPreview imageUrl={sourceUrl} crop={draftCrop} /></div>
-                </article>
-              </div>
-
-              <CandidatePanel
-                imageUrl={sourceUrl}
-                candidates={job.candidates}
-                selectedCandidateId={selectedCandidateId}
-                pregenerated={provenance === "pregenerated"}
-                disabled={editingLocked}
-                onSelect={selectCandidate}
-              />
-
-              <CompositionTools
-                crop={draftCrop}
-                imageWidth={job.image_width}
-                imageHeight={job.image_height}
-                intent={job.intent}
-                guides={guides}
-                processingDurationMs={job.processing_duration_ms}
-                pregenerated={provenance === "pregenerated"}
-                onToggleGuide={toggleGuide}
-              />
-
-              <SelectionReasonPanel
-                disabled={editingLocked}
-                reasons={selectionReasons}
-                note={selectionNote}
-                onReasonsChange={(reasons) => { setSelectionReasons(reasons); setNotice(""); }}
-                onNoteChange={(note) => { setSelectionNote(note); setNotice(""); }}
-              />
-            </section>
-            <ReportPanel
-              report={job.report}
-              adjusted={job.manual_adjusted || cropDirty || reportScopeChanged}
-              manualOnly={manualOnly}
-              source={
-                provenance === "pregenerated"
-                  ? "pregenerated"
-                  : job.capability_status === "mock" ? "mock" : "model"
-              }
-            />
-          </main>
-        )}
-        <footer className="app-footer"><span><strong>SmartCrop</strong> 美境智剪</span><span>用新的视角，看见照片的可能。</span><span>AI 提供灵感 · 你决定画面</span></footer>
-      </div>
-    </>
-  );
-}
-
-function CropMark() {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22">
-      <path d="M7 3v14h14M3 7h14v14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+        <div hidden={!isSampleVisible}>
+          {mode === "sample" && sampleIntent && <main className="workspace-main" id={isSampleVisible ? "main-content" : "sample-content"} tabIndex={-1}>
+            <SampleEditor key={sampleGeneration} ref={sampleEditor} intent={sampleIntent} active={isSampleVisible}
+              onStatus={setStatus} onNewCreation={() => void newCreation()} />
+          </main>}
+        </div>
+        <div hidden={!isUploadVisible}>
+          <UploadPanel key={importGeneration} variant="workspace" persistent active={isUploadVisible} mainId={isUploadVisible ? "main-content" : "import-content"}
+            {...importDefaults}
+            accessCode="" onAccessCodeChange={() => undefined} busy={busy}
+            onSubmit={(file, intent) => importPhoto(file, intent)} onOpenPregeneratedDemo={intent => void openSample(intent)} />
+        </div>
+        {isWorkspace && !authReady && !isSampleVisible && <main className="workspace-main" id="main-content" tabIndex={-1}><p role="status">正在确认登录状态…</p></main>}
+        {isWorkspace && canView && page === "workbench" && requestedId && !isProjectVisible && <main className="workspace-main" id="main-content" tabIndex={-1}>
+          {loadError ? <><h1>作品暂时无法打开</h1><p role="alert">{loadError}</p><button className="secondary-button" onClick={() => setReloadTick(value => value + 1)}>重试</button><button className="text-button" onClick={() => navigate("library")}>返回作品列表</button></> : <p role="status">正在打开作品…</p>}
+        </main>}
+        {isWorkspace && canView && page === "overview" && <OverviewPage {...pageProps} />}
+        {isWorkspace && canView && page === "library" && <LibraryPage {...pageProps} />}
+        {isWorkspace && canView && page === "insights" && <InsightsPage {...pageProps} />}
+        <div hidden={!(isWorkspace && canView && page === "profile")}>
+          {authReady && user && <ProfilePage {...pageProps} profileMainId={isWorkspace && canView && page === "profile" ? "main-content" : "profile-content"} />}
+        </div>
+      </WorkspaceShell>
+    </div>
+    <div hidden={showShell} className="desktop-app">
+      {!showLogin && <header className="app-header">
+        <a className="brand" href="/" onClick={event => follow(event, "/")}><span className="brand-mark"><Crop aria-hidden="true" size={22} /></span><span><strong>SmartCrop</strong><small>美境智剪</small></span></a>
+        <nav className="header-nav" aria-label="展示首页导航"><a className="is-active" href="/studio/overview" onClick={event => follow(event, "overview")}>进入工作室</a>
+          {route.kind === "home" && <><a href="#inspiration">构图灵感</a><a href="#guide">使用指南</a></>}</nav>
+        <div className="header-trust"><ShieldCheck aria-hidden="true" size={17} />作品保留至主动删除 · 演示账号共用</div>
+      </header>}
+      {error && !isWorkspace && <div className="global-error" role="alert">{error}</div>}
+      {route.kind === "home" && <UploadPanel persistent accessCode="" onAccessCodeChange={() => undefined} busy={busy}
+        {...importDefaults}
+        onSubmit={(file, intent, _provenance, customized) => importPhoto(file, intent, !user && !customized)} onOpenPregeneratedDemo={intent => void openSample(intent)} />}
+      {showLogin && (authReady ? loginPanel : <main id="main-content" className="workspace-main"><p role="status">正在确认登录状态…</p></main>)}
+      {route.kind === "not-found" && <main className="workspace-not-found" id="main-content" tabIndex={-1}><h1>这个页面暂时无法打开</h1><p>请检查地址，或回到工作室查看已保存作品。</p><button className="primary-button" onClick={() => navigate("overview")}>返回创作概览</button></main>}
+      {!isWorkspace && <footer className="app-footer"><span><strong>SmartCrop</strong> 美境智剪</span><span>用新的视角，看见照片的可能。</span><span>AI 提供灵感 · 你决定画面</span></footer>}
+    </div>
+  </>;
 }
