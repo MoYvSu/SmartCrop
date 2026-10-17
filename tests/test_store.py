@@ -164,6 +164,9 @@ def test_existing_database_gains_selection_evidence_columns(tmp_path: Path) -> N
     assert not record.selection_confirmed
     assert record.selection_reasons == []
     assert record.selection_note is None
+    assert record.inference_completed_at is None
+    store.initialize()
+    assert store.get_job("legacy").inference_completed_at is None
 
 
 def test_expired_job_files_are_removed_before_record(tmp_path: Path) -> None:

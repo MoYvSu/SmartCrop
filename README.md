@@ -64,6 +64,13 @@ Copy-Item .env.example .env
 
 打开 `http://127.0.0.1:8000`。默认 Mock 后端只用于 UI、契约和部署冒烟测试，不能作为真实 Venus 模型验收证据。
 
+程序读取进程环境变量，`scripts/dev.py` 不会自动加载 `.env`。仅复制配置文件不会启用
+DeepSeek；新机器默认使用 Mock 且关闭翻译，因此没有密钥也可以正常运行。若主动启用
+`SMARTCROP_REPORT_TRANSLATOR=deepseek` 但没有密钥，现在也会警告后继续输出原报告。
+翻译成功时显示中文；调用失败或超过 `SMARTCROP_DEEPSEEK_TIMEOUT_SECONDS` 的报告级总预算
+（默认 12 秒，包含重试）时保留原报告，不占用模型推理时限。详情见
+[翻译故障隔离决策](docs/decisions/0008-optional-translation-failure-isolation.md)。
+
 ## GPU 主机运行
 
 在 Linux / AutoDL 主机使用 Python 3.10，安装 CUDA 对应的 PyTorch 和项目 Venus 依赖，设置：

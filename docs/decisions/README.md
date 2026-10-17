@@ -10,5 +10,6 @@ Each record should state status, context, decision, consequences, alternatives, 
 
 Current decisions:
 
+- [ADR-0008：可选翻译的故障隔离与独立时间预算](0008-optional-translation-failure-isolation.md)
 - [ADR-0006：以人工选择替代终稿复评](0006-human-selection-over-final-review.md)
 - [ADR-0007：发布目标与人工决策证据进入服务端契约](0007-output-target-and-decision-evidence.md)

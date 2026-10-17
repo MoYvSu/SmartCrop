@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +76,16 @@ class Settings:
                 os.getenv("SMARTCROP_P0_CAPABILITIES_VERIFIED"), False
             ),
         )
+
+    @property
+    def postprocessing_timeout_seconds(self) -> float:
+        """Translation has its own total budget, plus bounded artifact/DB finalization."""
+        translation_budget = (
+            self.deepseek_timeout_seconds if self.report_translator == "deepseek" else 0.0
+        )
+        if not math.isfinite(translation_budget) or translation_budget < 0:
+            translation_budget = 0.0
+        return 30.0 + translation_budget
 
     @property
     def jobs_dir(self) -> Path:

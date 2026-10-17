@@ -43,6 +43,7 @@ export async function createJob(
   file: File,
   intent: AnalysisIntent,
   accessCode: string,
+  signal?: AbortSignal,
 ): Promise<JobResponse> {
   const form = new FormData();
   form.append("file", file, file.name);
@@ -58,13 +59,18 @@ export async function createJob(
       method: "POST",
       headers: headers(accessCode),
       body: form,
+      signal,
     }),
   );
 }
 
-export async function getJob(jobId: string, accessCode: string): Promise<JobResponse> {
+export async function getJob(
+  jobId: string,
+  accessCode: string,
+  signal?: AbortSignal,
+): Promise<JobResponse> {
   return expectJson<JobResponse>(
-    await fetch(`/v1/jobs/${jobId}`, { headers: headers(accessCode) }),
+    await fetch(`/v1/jobs/${jobId}`, { headers: headers(accessCode), signal }),
   );
 }
 
@@ -75,6 +81,7 @@ export async function updateCrop(
   candidateId?: string,
   selectionReasons: string[] = [],
   selectionNote?: string,
+  signal?: AbortSignal,
 ): Promise<JobResponse> {
   return expectJson<JobResponse>(
     await fetch(`/v1/jobs/${jobId}/crop`, {
@@ -86,6 +93,7 @@ export async function updateCrop(
         selection_reasons: selectionReasons,
         selection_note: selectionNote || null,
       }),
+      signal,
     }),
   );
 }
@@ -94,10 +102,12 @@ export async function downloadArtifact(
   path: string,
   accessCode: string,
   baseFilename: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(path, { headers: headers(accessCode) });
+  const response = await fetch(path, { headers: headers(accessCode), signal });
   if (!response.ok) throw new ApiError(response.status, await readError(response));
   const blob = await response.blob();
+  signal?.throwIfAborted();
   const extension = blob.type.includes("json") ? "json" : blob.type === "image/png" ? "png" : "jpg";
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

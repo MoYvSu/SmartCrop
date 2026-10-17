@@ -59,6 +59,7 @@ class JobRecord:
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
+    inference_completed_at: datetime | None
     completed_at: datetime | None
     expires_at: datetime
 
@@ -114,6 +115,7 @@ class JobStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     started_at TEXT,
+                    inference_completed_at TEXT,
                     completed_at TEXT,
                     expires_at TEXT NOT NULL
                 );
@@ -123,6 +125,9 @@ class JobStore:
                     ON jobs(expires_at);
                 """
             )
+            # API and worker may initialize the same legacy DB concurrently.
+            # Serialize inspection + ALTER so only one adds each missing column.
+            connection.execute("BEGIN IMMEDIATE")
             columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
@@ -132,6 +137,9 @@ class JobStore:
                     "ALTER TABLE jobs ADD COLUMN manual_only INTEGER NOT NULL DEFAULT 0"
                 )
             migrations = {
+                "inference_completed_at": (
+                    "ALTER TABLE jobs ADD COLUMN inference_completed_at TEXT"
+                ),
                 "mode": "ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'crop'",
                 "parent_job_id": "ALTER TABLE jobs ADD COLUMN parent_job_id TEXT",
                 "intent_json": "ALTER TABLE jobs ADD COLUMN intent_json TEXT",
@@ -269,6 +277,18 @@ class JobStore:
             connection.commit()
         return self.get_job(job_id) if updated else None
 
+    def mark_inference_completed(self, job_id: str) -> bool:
+        now = to_iso(utc_now())
+        with self._connect() as connection:
+            result = connection.execute(
+                """
+                UPDATE jobs SET inference_completed_at = ?, updated_at = ?
+                WHERE id = ? AND status = ? AND inference_completed_at IS NULL
+                """,
+                (now, now, job_id, JobStatus.RUNNING.value),
+            )
+        return result.rowcount == 1
+
     def complete_job(
         self,
         job_id: str,
@@ -390,27 +410,63 @@ class JobStore:
             )
         return result.rowcount == 1
 
-    def expire_stale_running(self, timeout_seconds: int) -> int:
-        threshold = utc_now() - timedelta(seconds=timeout_seconds)
+    def _expire_running(
+        self,
+        timeout_seconds: int,
+        postprocessing_timeout_seconds: float,
+        job_id: str | None = None,
+    ) -> int:
         now = utc_now()
+        inference_threshold = now - timedelta(seconds=timeout_seconds)
+        postprocessing_threshold = now - timedelta(seconds=postprocessing_timeout_seconds)
+        job_clause = " AND id = ?" if job_id is not None else ""
+        parameters = [
+            JobStatus.FAILED.value,
+            to_iso(now),
+            to_iso(now),
+            JobStatus.RUNNING.value,
+            to_iso(inference_threshold),
+            to_iso(postprocessing_threshold),
+        ]
+        if job_id is not None:
+            parameters.append(job_id)
         with self._connect() as connection:
             result = connection.execute(
                 """
-                UPDATE jobs SET status = ?, error_code = ?, error_message = ?,
+                UPDATE jobs SET status = ?,
+                    error_code = CASE WHEN inference_completed_at IS NULL
+                        THEN 'inference_timeout' ELSE 'postprocessing_timeout' END,
+                    error_message = CASE WHEN inference_completed_at IS NULL
+                        THEN '模型推理超过允许时间，请稍后重试'
+                        ELSE '结果整理超过允许时间，请稍后重试' END,
                     completed_at = ?, updated_at = ?
-                WHERE status = ? AND started_at < ?
-                """,
-                (
-                    JobStatus.FAILED.value,
-                    "inference_timeout",
-                    "模型推理超过允许时间，请稍后重试",
-                    to_iso(now),
-                    to_iso(now),
-                    JobStatus.RUNNING.value,
-                    to_iso(threshold),
-                ),
+                WHERE status = ? AND (
+                    (inference_completed_at IS NULL AND started_at < ?)
+                    OR inference_completed_at < ?
+                )
+                """ + job_clause,
+                parameters,
             )
         return result.rowcount
+
+    def expire_stale_running(
+        self,
+        timeout_seconds: int,
+        postprocessing_timeout_seconds: float = 30.0,
+    ) -> int:
+        return self._expire_running(timeout_seconds, postprocessing_timeout_seconds)
+
+    def fail_timed_out_job(
+        self,
+        job_id: str,
+        timeout_seconds: int,
+        postprocessing_timeout_seconds: float = 30.0,
+    ) -> bool:
+        # Recheck status AND stage in the write itself. A supervisor's earlier
+        # snapshot must not kill a job that just entered optional translation.
+        return self._expire_running(
+            timeout_seconds, postprocessing_timeout_seconds, job_id,
+        ) == 1
 
     def list_expired(self) -> list[JobRecord]:
         now = to_iso(utc_now())
@@ -474,6 +530,7 @@ class JobStore:
             created_at=from_iso(row["created_at"]),
             updated_at=from_iso(row["updated_at"]),
             started_at=from_iso(row["started_at"]),
+            inference_completed_at=from_iso(row["inference_completed_at"]),
             completed_at=from_iso(row["completed_at"]),
             expires_at=from_iso(row["expires_at"]),
         )

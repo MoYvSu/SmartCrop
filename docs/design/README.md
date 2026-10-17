@@ -6,5 +6,6 @@ When frontend design begins, use `$ui-ux-pro-max` to generate a project-level de
 
 ## Current interface
 
+- [CMIT final review (2026-10-17)](../product/cmit-delivery-baseline.md): final frontend fixes, browser validation and delivery boundaries.
 - [Photography studio refresh (2026-10-15)](studio-refresh-2026-10.md): CMIT visual references, page structure, responsive scope and honest example boundaries.
 - [Studio page design-system override](../../design-system/smartcrop/pages/studio.md): current palette, typography, components and responsive behavior. This overrides the early design-system MASTER for the product pages.

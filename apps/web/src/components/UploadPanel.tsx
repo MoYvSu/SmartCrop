@@ -156,6 +156,8 @@ export function UploadPanel({
           ref={inputRef}
           className="visually-hidden"
           type="file"
+          aria-label="选择待裁剪照片"
+          tabIndex={-1}
           accept="image/jpeg,image/png,image/webp"
           disabled={busy}
           onChange={(event) => choose(event.target.files?.[0])}
@@ -163,6 +165,7 @@ export function UploadPanel({
         <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
           {announcement}
         </p>
+        {error && <p className="field-error upload-file-error" id="upload-error" role="alert">{error}</p>}
 
         {file && (
           <button
@@ -171,6 +174,7 @@ export function UploadPanel({
             disabled={busy}
             onClick={() => {
               setFile(null);
+              setError("");
               setAnnouncement("");
               if (inputRef.current) inputRef.current.value = "";
             }}
@@ -179,7 +183,7 @@ export function UploadPanel({
           </button>
         )}
 
-        <fieldset className="intent-fieldset">
+        <fieldset className="intent-fieldset" disabled={busy}>
           <legend className="card-step-label"><span aria-hidden="true">02</span>告诉我们你的创作意图</legend>
           <label><span id="scene-label">使用场景</span>
             <select aria-labelledby="scene-label" value={scene} onChange={(event) => setScene(event.target.value as SceneType)}>
@@ -210,7 +214,7 @@ export function UploadPanel({
         </p>
 
         {outputTemplate === "custom" && (
-          <fieldset className="custom-ratio-fieldset">
+          <fieldset className="custom-ratio-fieldset" disabled={busy}>
             <legend>自定义宽高比</legend>
             <label htmlFor="custom-ratio-width">宽
               <input
@@ -249,6 +253,7 @@ export function UploadPanel({
           <span><LockKeyhole aria-hidden="true" size={16} />演示访问码</span>
           <input
             type="password"
+            disabled={busy}
             autoComplete="current-password"
             value={accessCode}
             onChange={(event) => onAccessCodeChange(event.target.value)}
@@ -256,7 +261,6 @@ export function UploadPanel({
           />
         </label>
 
-        {error && <p className="field-error" id="upload-error" role="alert">{error}</p>}
         <button
           type="button"
           className="primary-button"

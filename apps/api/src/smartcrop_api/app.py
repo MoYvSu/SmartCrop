@@ -56,6 +56,8 @@ def _progress_message(record: JobRecord, queue_position: int | None) -> str:
     if record.status == JobStatus.QUEUED:
         return f"正在排队，前方还有 {max((queue_position or 1) - 1, 0)} 个任务"
     if record.status == JobStatus.RUNNING:
+        if record.inference_completed_at is not None:
+            return "构图分析已完成，正在整理结果"
         return (
             "Venus 正在复评最终成片"
             if record.mode == JobMode.REVIEW

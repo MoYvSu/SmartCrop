@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Focus, Frame, Trees } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { CropCandidate } from "../types";
 import { CropPreview } from "./CropPreview";
@@ -15,6 +15,7 @@ interface Props {
   candidates: CropCandidate[];
   selectedCandidateId: CropCandidate["id"] | null;
   pregenerated?: boolean;
+  disabled?: boolean;
   onSelect: (candidate: CropCandidate) => boolean | void;
 }
 
@@ -23,9 +24,12 @@ export function CandidatePanel({
   candidates,
   selectedCandidateId,
   pregenerated = false,
+  disabled = false,
   onSelect,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const [announcement, setAnnouncement] = useState("");
   if (!candidates.length) return null;
 
   const selectedCandidate =
@@ -60,6 +64,8 @@ export function CandidatePanel({
       {alternatives.length > 0 && <button
         type="button"
         className="candidate-toggle"
+        ref={toggleRef}
+        disabled={disabled}
         aria-expanded={expanded}
         aria-controls="candidate-alternatives"
         onClick={() => setExpanded((value) => !value)}
@@ -76,8 +82,13 @@ export function CandidatePanel({
               type="button"
               key={candidate.id}
               className="candidate-card"
+              disabled={disabled}
               onClick={() => {
-                if (onSelect(candidate) !== false) setExpanded(false);
+                if (onSelect(candidate) !== false) {
+                  setExpanded(false);
+                  setAnnouncement(`已选择${name}。`);
+                  toggleRef.current?.focus({ preventScroll: true });
+                }
               }}
             >
               <span className="candidate-preview"><CropPreview imageUrl={imageUrl} crop={candidate.crop} /></span>
@@ -89,6 +100,7 @@ export function CandidatePanel({
           );
         })}
       </div>}
+      <p className="visually-hidden" role="status" aria-live="polite">{announcement}</p>
     </section>
   );
 }

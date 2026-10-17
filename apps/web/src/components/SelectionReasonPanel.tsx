@@ -13,6 +13,7 @@ const REASONS: Array<{ id: SelectionReason; label: string }> = [
 interface Props {
   reasons: SelectionReason[];
   note: string;
+  disabled?: boolean;
   onReasonsChange: (reasons: SelectionReason[]) => void;
   onNoteChange: (note: string) => void;
 }
@@ -20,6 +21,7 @@ interface Props {
 export function SelectionReasonPanel({
   reasons,
   note,
+  disabled = false,
   onReasonsChange,
   onNoteChange,
 }: Props) {
@@ -32,7 +34,7 @@ export function SelectionReasonPanel({
   };
 
   return (
-    <fieldset className="selection-reason-panel">
+    <fieldset className="selection-reason-panel" disabled={disabled}>
       <legend><MessageSquareText aria-hidden="true" size={17} />记录选择依据</legend>
       <p>按需记录本次选择，内容仅随当前任务暂存，本版本不用于模型训练。</p>
       <div className="reason-options">

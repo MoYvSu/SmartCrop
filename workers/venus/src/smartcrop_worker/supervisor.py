@@ -58,6 +58,30 @@ class WorkerSupervisor:
             process.kill()
             process.join(timeout=5)
 
+    def _timeout_running_job(self, process: multiprocessing.Process) -> bool:
+        running = self.store.get_running()
+        if running is None or running.started_at is None:
+            return False
+        phase_start = running.inference_completed_at or running.started_at
+        limit = (
+            self.settings.postprocessing_timeout_seconds
+            if running.inference_completed_at is not None
+            else self.settings.task_timeout_seconds
+        )
+        if (datetime.now(timezone.utc) - phase_start).total_seconds() <= limit:
+            return False
+        if not self.store.fail_timed_out_job(
+            running.id,
+            self.settings.task_timeout_seconds,
+            self.settings.postprocessing_timeout_seconds,
+        ):
+            return False
+        # The conditional write fences out late results before stopping the
+        # child. A worker that loses this lease exits without claiming a new job.
+        LOGGER.error("Hard timeout for job %s; replacing inference process", running.id)
+        self._stop_child(process)
+        return True
+
     def run_forever(self) -> None:
         process = self._start_child()
         try:
@@ -76,23 +100,8 @@ class WorkerSupervisor:
                     time.sleep(2)
                     process = self._start_child()
 
-                running = self.store.get_running()
-                if running and running.started_at:
-                    elapsed = (datetime.now(timezone.utc) - running.started_at).total_seconds()
-                    if elapsed > self.settings.task_timeout_seconds:
-                        LOGGER.error(
-                            "Hard timeout for job %s after %.1fs; replacing inference process",
-                            running.id,
-                            elapsed,
-                        )
-                        self._stop_child(process)
-                        self.store.fail_job(
-                            running.id,
-                            "inference_timeout",
-                            f"模型推理超过 {self.settings.task_timeout_seconds} 秒，"
-                            "已终止任务，请稍后重试",
-                        )
-                        process = self._start_child()
+                if self._timeout_running_job(process):
+                    process = self._start_child()
 
                 time.sleep(min(max(self.settings.worker_poll_seconds / 2, 0.2), 1.0))
         except KeyboardInterrupt:

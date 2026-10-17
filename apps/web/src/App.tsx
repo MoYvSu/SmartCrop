@@ -1,4 +1,4 @@
-import { Check, Download, ImagePlus, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { Check, Download, ImagePlus, LoaderCircle, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, createJob, downloadArtifact, getJob, updateCrop } from "./api";
@@ -12,6 +12,7 @@ import { SelectionReasonPanel } from "./components/SelectionReasonPanel";
 import { UploadPanel } from "./components/UploadPanel";
 import { cropEquals, fitCropToIntent, normalizedAspectRatio } from "./lib/crop";
 import { createPregeneratedJob, DEMO_IMAGE_URL, downloadDemoCrop } from "./lib/demo";
+import { intentRatioLabel, PUBLICATION_PRESETS } from "./lib/publishing";
 import type {
   AnalysisIntent,
   CompositionGuide,
@@ -24,9 +25,15 @@ import type {
 
 const TERMINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const DEFAULT_MANUAL_CROP: CropBox = { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
+type Activity = "analysis" | "save" | "download";
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function errorMessage(caught: unknown, fallback: string): string {
+  if (caught instanceof TypeError) return "网络连接失败，请检查网络和服务后重试。";
+  return caught instanceof Error ? caught.message : fallback;
 }
 
 export default function App() {
@@ -40,10 +47,16 @@ export default function App() {
   const [guides, setGuides] = useState<CompositionGuide[]>(["thirds"]);
   const [provenance, setProvenance] = useState<RunProvenance>("upload");
   const [phase, setPhase] = useState<"upload" | "processing" | "result">("upload");
-  const [busy, setBusy] = useState(false);
+  const [activity, setActivity] = useState<Activity | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [connectionError, setConnectionError] = useState("");
+  // A workspace generation rejects late responses even if abort arrives after
+  // a request has completed. The controller also locks double-clicks immediately.
   const pollToken = useRef(0);
+  const request = useRef<AbortController | null>(null);
   const previousPhase = useRef(phase);
+  const busy = activity !== null;
 
   useEffect(() => {
     sessionStorage.setItem("smartcrop-access", accessCode);
@@ -52,6 +65,12 @@ export default function App() {
   useEffect(() => () => {
     if (sourceUrl.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
   }, [sourceUrl]);
+
+  useEffect(() => () => {
+    pollToken.current += 1;
+    request.current?.abort();
+    request.current = null;
+  }, []);
 
   useEffect(() => {
     if (previousPhase.current === phase) return undefined;
@@ -63,9 +82,10 @@ export default function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [phase]);
 
-  const reset = () => {
+  const clearWorkspace = () => {
     pollToken.current += 1;
-    if (sourceUrl.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
+    request.current?.abort();
+    request.current = null;
     setSourceUrl("");
     setJob(null);
     setDraftCrop(null);
@@ -75,7 +95,82 @@ export default function App() {
     setGuides(["thirds"]);
     setProvenance("upload");
     setError("");
-    setBusy(false);
+    setNotice("");
+    setConnectionError("");
+    setActivity(null);
+    setPhase("upload");
+  };
+
+  const beginOperation = (nextActivity: Activity) => {
+    if (request.current) return null;
+    const controller = new AbortController();
+    request.current = controller;
+    setActivity(nextActivity);
+    setError("");
+    setNotice("");
+    return { token: pollToken.current, controller };
+  };
+
+  const isCurrent = (token: number, controller: AbortController) => (
+    token === pollToken.current && request.current === controller && !controller.signal.aborted
+  );
+
+  const endOperation = (token: number, controller: AbortController) => {
+    if (!isCurrent(token, controller)) return;
+    request.current = null;
+    setActivity(null);
+  };
+
+  const finishAnalysis = (current: JobResponse) => {
+    setConnectionError("");
+    if (current.status === "failed") {
+      setDraftCrop(fitCropToIntent(
+        DEFAULT_MANUAL_CROP,
+        current.intent,
+        current.image_width,
+        current.image_height,
+      ));
+      setSelectedCandidateId(null);
+      setPhase("result");
+      return;
+    }
+    if (current.status !== "succeeded" || !current.final_crop) {
+      setError(current.status === "expired"
+        ? "任务已过期，请返回上传页重新选择照片。"
+        : current.error?.message || "任务未能完成，请返回上传页重试。");
+      return;
+    }
+    setDraftCrop(current.final_crop);
+    setSelectedCandidateId(current.selected_candidate_id || current.candidates[0]?.id || null);
+    setSelectionReasons(current.selection_reasons || []);
+    setSelectionNote(current.selection_note || "");
+    setPhase("result");
+  };
+
+  const pollJob = async (initial: JobResponse, token: number, controller: AbortController) => {
+    let current = initial;
+    while (!TERMINAL.has(current.status)) {
+      await sleep(1500);
+      if (!isCurrent(token, controller)) return;
+      current = await getJob(current.id, accessCode, controller.signal);
+      if (!isCurrent(token, controller)) return;
+      setJob(current);
+    }
+    if (isCurrent(token, controller)) finishAnalysis(current);
+  };
+
+  const analysisFailed = (caught: unknown, created: JobResponse | null) => {
+    if (created) {
+      if (caught instanceof ApiError && (caught.status === 404 || caught.status === 410)) {
+        setJob((current) => current ? { ...current, status: "expired" } : current);
+        setError("任务已过期，请返回上传页重新选择照片。");
+        setConnectionError("");
+      } else {
+        setConnectionError(errorMessage(caught, "暂时无法获取任务状态。"));
+      }
+      return;
+    }
+    setError(errorMessage(caught, "提交失败，请稍后重试"));
     setPhase("upload");
   };
 
@@ -84,55 +179,55 @@ export default function App() {
     intent: AnalysisIntent,
     runProvenance: RunProvenance,
   ) => {
-    setBusy(true);
-    setError("");
-    const token = ++pollToken.current;
+    if (request.current) return;
+    pollToken.current += 1;
+    const operation = beginOperation("analysis");
+    if (!operation) return;
+    const { token, controller } = operation;
     const localUrl = URL.createObjectURL(file);
     setSourceUrl(localUrl);
     setProvenance(runProvenance);
+    setJob(null);
+    setDraftCrop(null);
+    setSelectedCandidateId(null);
+    setSelectionReasons([]);
+    setSelectionNote("");
+    setConnectionError("");
+    let created: JobResponse | null = null;
     try {
-      let current = await createJob(file, intent, accessCode);
-      if (token !== pollToken.current) return;
-      setJob(current);
+      created = await createJob(file, intent, accessCode, controller.signal);
+      if (!isCurrent(token, controller)) return;
+      setJob(created);
       setPhase("processing");
-      while (!TERMINAL.has(current.status)) {
-        await sleep(1500);
-        if (token !== pollToken.current) return;
-        current = await getJob(current.id, accessCode);
-        setJob(current);
-      }
-      if (current.status === "failed") {
-        setDraftCrop(fitCropToIntent(
-          DEFAULT_MANUAL_CROP,
-          current.intent,
-          current.image_width,
-          current.image_height,
-        ));
-        setSelectedCandidateId(null);
-        setPhase("result");
-        return;
-      }
-      if (current.status !== "succeeded" || !current.final_crop) {
-        throw new Error(current.error?.message || "任务未能完成，请重新上传图片");
-      }
-      setDraftCrop(current.final_crop);
-      setSelectedCandidateId(current.selected_candidate_id || current.candidates[0]?.id || null);
-      setSelectionReasons(current.selection_reasons || []);
-      setSelectionNote(current.selection_note || "");
-      setPhase("result");
+      await pollJob(created, token, controller);
     } catch (caught) {
-      if (token !== pollToken.current) return;
-      const message = caught instanceof Error ? caught.message : "提交失败，请稍后重试";
-      setError(message);
-      setPhase("upload");
+      if (isCurrent(token, controller)) analysisFailed(caught, created);
     } finally {
-      setBusy(false);
+      endOperation(token, controller);
+    }
+  };
+
+  const reconnect = async () => {
+    if (!job) return;
+    const operation = beginOperation("analysis");
+    if (!operation) return;
+    const { token, controller } = operation;
+    setConnectionError("");
+    try {
+      const current = await getJob(job.id, accessCode, controller.signal);
+      if (!isCurrent(token, controller)) return;
+      setJob(current);
+      await pollJob(current, token, controller);
+    } catch (caught) {
+      if (isCurrent(token, controller)) analysisFailed(caught, job);
+    } finally {
+      endOperation(token, controller);
     }
   };
 
   const openPregeneratedDemo = (intent: AnalysisIntent) => {
+    if (request.current) return;
     pollToken.current += 1;
-    if (sourceUrl.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
     const demo = createPregeneratedJob(intent);
     setSourceUrl(DEMO_IMAGE_URL);
     setJob(demo);
@@ -143,7 +238,9 @@ export default function App() {
     setGuides(["thirds"]);
     setProvenance("pregenerated");
     setError("");
-    setBusy(false);
+    setNotice("");
+    setConnectionError("");
+    setActivity(null);
     setPhase("result");
   };
 
@@ -161,8 +258,18 @@ export default function App() {
   );
   const confirmationPending = Boolean(job && !job.selection_confirmed);
   const hasPendingChanges = cropDirty || selectionDirty || reasonDirty || confirmationPending;
+  const jobExpired = job?.status === "expired";
+  const editingLocked = busy || jobExpired;
+  const manualOnly = Boolean(job && (job.manual_only || !job.report));
 
-  const saveCrop = async (): Promise<JobResponse | null> => {
+  const reset = () => {
+    if (phase === "result" && request.current) return;
+    if (phase === "result" && (cropDirty || selectionDirty || reasonDirty)
+      && !window.confirm("当前还有未保存的调整，离开后将丢失。是否重新选择照片？")) return;
+    clearWorkspace();
+  };
+
+  const persistCrop = async (token: number, controller: AbortController): Promise<JobResponse | null> => {
     if (!job || !draftCrop) return null;
     if (provenance === "pregenerated") {
       const referenceCrop =
@@ -180,64 +287,86 @@ export default function App() {
       setJob(updated);
       return updated;
     }
-    setBusy(true);
-    setError("");
+    const updated = await updateCrop(
+      job.id,
+      draftCrop,
+      accessCode,
+      selectedCandidateId || undefined,
+      selectionReasons,
+      selectionNote.trim() || undefined,
+      controller.signal,
+    );
+    if (!isCurrent(token, controller)) return null;
+    setJob(updated);
+    setDraftCrop(updated.final_crop);
+    setSelectedCandidateId(updated.selected_candidate_id || selectedCandidateId);
+    setSelectionReasons(updated.selection_reasons || []);
+    setSelectionNote(updated.selection_note || "");
+    return updated;
+  };
+
+  const resultFailed = (caught: unknown, fallback: string) => {
+    if (caught instanceof ApiError && (caught.status === 404 || caught.status === 410)) {
+      setJob((current) => current ? { ...current, status: "expired" } : current);
+      setError("任务已过期，无法继续保存或下载。请重新上传照片。");
+      return;
+    }
+    setError(errorMessage(caught, fallback));
+  };
+
+  const saveCrop = async () => {
+    if (jobExpired) return;
+    const operation = beginOperation("save");
+    if (!operation) return;
+    const { token, controller } = operation;
     try {
-      const updated = await updateCrop(
-        job.id,
-        draftCrop,
-        accessCode,
-        selectedCandidateId || undefined,
-        selectionReasons,
-        selectionNote.trim() || undefined,
-      );
-      setJob(updated);
-      setDraftCrop(updated.final_crop);
-      setSelectedCandidateId(updated.selected_candidate_id || selectedCandidateId);
-      setSelectionReasons(updated.selection_reasons || []);
-      setSelectionNote(updated.selection_note || "");
-      return updated;
+      const updated = await persistCrop(token, controller);
+      if (updated && isCurrent(token, controller)) setNotice("当前方案已保存，可以下载成片。");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "保存裁剪失败");
-      return null;
+      if (isCurrent(token, controller)) resultFailed(caught, "保存裁剪失败");
     } finally {
-      setBusy(false);
+      endOperation(token, controller);
     }
   };
 
   const download = async () => {
-    if (!job) return;
-    let current = job;
-    if (hasPendingChanges) {
-      const updated = await saveCrop();
-      if (!updated) return;
-      current = updated;
-    }
-    if (provenance === "pregenerated" && current.final_crop) {
-      try {
+    if (!job || jobExpired) return;
+    const operation = beginOperation("download");
+    if (!operation) return;
+    const { token, controller } = operation;
+    try {
+      let current = job;
+      if (hasPendingChanges) {
+        const updated = await persistCrop(token, controller);
+        if (!updated || !isCurrent(token, controller)) return;
+        current = updated;
+      }
+      if (provenance === "pregenerated" && current.final_crop) {
         await downloadDemoCrop(
           sourceUrl,
           current.final_crop,
           `SmartCrop_${current.id.slice(0, 8)}`,
         );
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "演示裁剪下载失败");
+      } else if (current.artifacts.crop) {
+        await downloadArtifact(
+          current.artifacts.crop,
+          accessCode,
+          `SmartCrop_${current.id.slice(0, 8)}`,
+          controller.signal,
+        );
+      } else {
+        throw new Error("成片暂不可下载，请重新保存当前方案。");
       }
-      return;
-    }
-    if (!current.artifacts.crop) return;
-    try {
-      await downloadArtifact(
-        current.artifacts.crop,
-        accessCode,
-        `SmartCrop_${current.id.slice(0, 8)}`,
-      );
+      if (isCurrent(token, controller)) setNotice("下载已开始，请在浏览器下载列表中查看成片。");
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "下载失败");
+      if (isCurrent(token, controller)) resultFailed(caught, "下载失败，请重试");
+    } finally {
+      endOperation(token, controller);
     }
   };
 
   const selectCandidate = (candidate: CropCandidate): boolean => {
+    if (request.current || jobExpired) return false;
     const currentCropIsGenerated = Boolean(
       draftCrop && job?.candidates.some((item) => cropEquals(item.crop, draftCrop)),
     );
@@ -250,15 +379,18 @@ export default function App() {
     }
     setDraftCrop(candidate.crop);
     setSelectedCandidateId(candidate.id);
+    setNotice("");
     return true;
   };
 
   const restoreAiSuggestion = () => {
+    if (request.current || jobExpired) return;
     const aiCrop = job?.ai_crop;
     if (!job || !aiCrop) return;
     setDraftCrop(aiCrop);
     const sourceCandidate = job.candidates.find((candidate) => cropEquals(candidate.crop, aiCrop));
     setSelectedCandidateId(sourceCandidate?.id || job.selected_candidate_id || null);
+    setNotice("");
   };
 
   const toggleGuide = (guide: CompositionGuide) => {
@@ -315,6 +447,7 @@ export default function App() {
             <button type="button" onClick={() => setError("")}>关闭</button>
           </div>
         )}
+        {notice && <div className="global-notice" role="status"><Check aria-hidden="true" size={17} />{notice}</div>}
 
         {phase === "upload" && (
           <UploadPanel
@@ -326,42 +459,48 @@ export default function App() {
           />
         )}
 
-        {phase === "processing" && job && <ProcessingPanel job={job} onReset={reset} />}
+        {phase === "processing" && job && <ProcessingPanel
+          job={job}
+          connectionError={connectionError}
+          onReconnect={reconnect}
+          onReset={reset}
+        />}
 
         {phase === "result" && job && draftCrop && sourceUrl && (
           <main className="result-shell" id="main-content" tabIndex={-1}>
             <div className="result-page-heading">
               <div><p className="eyebrow">Your creative workspace</p><h1>让这一帧，恰到好处。</h1></div>
-              <span className="workspace-status"><span aria-hidden="true" />{job.selection_confirmed ? "当前方案已确认" : "取景方向，由你决定"}</span>
+              <span className="workspace-status"><span aria-hidden="true" />{jobExpired ? "任务已过期" : job.selection_confirmed && !hasPendingChanges ? "当前方案已确认" : job.selection_confirmed ? "有未应用的调整" : "取景方向，由你决定"}</span>
             </div>
             <section className="workspace-panel" aria-labelledby="workspace-heading">
               <div className="workspace-toolbar">
                 <div>
-                  <p className="eyebrow">任务 {job.id.slice(0, 8)}</p>
+                  <p className="eyebrow">{provenance === "pregenerated" ? "固定使用样例" : PUBLICATION_PRESETS.find((preset) => preset.id === job.intent.output_template)?.name || "自由裁剪"} · {intentRatioLabel(job.intent)}</p>
                   <h2 id="workspace-heading">调整最终构图</h2>
                 </div>
                 <div className="toolbar-actions">
-                  <button type="button" className="secondary-button" onClick={reset}>
+                  <button type="button" className="secondary-button" disabled={busy} onClick={reset}>
                     <ImagePlus aria-hidden="true" size={18} />分析另一张
                   </button>
-                  <button type="button" className="secondary-button" disabled={!hasPendingChanges || busy} onClick={saveCrop}>
-                    <Save aria-hidden="true" size={18} />
-                    {confirmationPending ? "确认当前方案" : "应用裁剪"}
+                  <button type="button" className="secondary-button" disabled={!hasPendingChanges || editingLocked} onClick={saveCrop} aria-busy={activity === "save"}>
+                    {activity === "save" ? <LoaderCircle className="is-spinning" aria-hidden="true" size={18} /> : <Save aria-hidden="true" size={18} />}
+                    {activity === "save" ? "正在保存" : confirmationPending ? "确认当前方案" : "应用裁剪"}
                   </button>
-                  <button type="button" className="primary-button compact" disabled={busy} onClick={download}>
-                    <Download aria-hidden="true" size={18} />下载裁剪图
+                  <button type="button" className="primary-button compact" disabled={editingLocked} onClick={download} aria-busy={activity === "download"}>
+                    {activity === "download" ? <LoaderCircle className="is-spinning" aria-hidden="true" size={18} /> : <Download aria-hidden="true" size={18} />}
+                    {activity === "download" ? "正在准备下载" : "下载裁剪图"}
                   </button>
                 </div>
               </div>
 
               <div className={`capability-banner status-${job.capability_status}`} role="status">
                 <strong>
-                  {provenance === "pregenerated"
+                  {jobExpired ? "任务已过期" : manualOnly ? "手动裁剪可继续使用" : provenance === "pregenerated"
                     ? "使用样例 · 固定展示"
                     : job.capability_status === "mock" ? "Mock 演示模式" : "AI 构图建议"}
                 </strong>
                 <span>
-                  {provenance === "pregenerated"
+                  {jobExpired ? "当前图片仅供查看，已无法保存或下载。请重新上传照片开始新的任务。" : manualOnly ? "本次分析没有生成可用结果。你可以调整取景框并下载，当前没有 AI 候选或画面分析。" : provenance === "pregenerated"
                     ? "这是用于了解操作流程的固定结果，没有调用当前模型。"
                     : job.capability_status === "mock"
                       ? "当前结果用于验证交互与制品链路。"
@@ -380,9 +519,14 @@ export default function App() {
                     imageWidth={job.image_width}
                     imageHeight={job.image_height}
                     crop={draftCrop}
-                    onChange={setDraftCrop}
+                    onChange={(crop) => {
+                      if (request.current || jobExpired) return;
+                      setDraftCrop(crop);
+                      setNotice("");
+                    }}
                     aspectRatio={aspectRatio}
                     guides={guides}
+                    disabled={editingLocked}
                   />
                 </article>
                 <article className="image-card">
@@ -392,7 +536,7 @@ export default function App() {
                       type="button"
                       className="icon-text-button"
                       onClick={restoreAiSuggestion}
-                      disabled={!job.ai_crop || cropEquals(job.ai_crop, draftCrop)}
+                      disabled={editingLocked || !job.ai_crop || cropEquals(job.ai_crop, draftCrop)}
                     >
                       <RotateCcw aria-hidden="true" size={16} />
                       {provenance === "pregenerated" ? "恢复固定示例" : "恢复 AI 建议"}
@@ -407,6 +551,7 @@ export default function App() {
                 candidates={job.candidates}
                 selectedCandidateId={selectedCandidateId}
                 pregenerated={provenance === "pregenerated"}
+                disabled={editingLocked}
                 onSelect={selectCandidate}
               />
 
@@ -422,16 +567,17 @@ export default function App() {
               />
 
               <SelectionReasonPanel
+                disabled={editingLocked}
                 reasons={selectionReasons}
                 note={selectionNote}
-                onReasonsChange={setSelectionReasons}
-                onNoteChange={setSelectionNote}
+                onReasonsChange={(reasons) => { setSelectionReasons(reasons); setNotice(""); }}
+                onNoteChange={(note) => { setSelectionNote(note); setNotice(""); }}
               />
             </section>
             <ReportPanel
               report={job.report}
               adjusted={job.manual_adjusted || cropDirty || reportScopeChanged}
-              manualOnly={job.manual_only || !job.report}
+              manualOnly={manualOnly}
               source={
                 provenance === "pregenerated"
                   ? "pregenerated"
