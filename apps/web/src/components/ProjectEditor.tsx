@@ -221,6 +221,7 @@ export const ProjectEditor = forwardRef<ProjectEditorHandle, Props>(function Pro
         <span role="status">{project.published ? `已归档 · 版本 ${project.published.version}` : "独立作品草稿"}</span></div>
       {error && <div className="project-save-error" role="alert"><p>{error}</p><button type="button" onClick={() => void reload()} disabled={!!operation}>重新载入服务器版本</button></div>}
       <Workbench job={job} draftCrop={draft.crop} sourceUrl={project.original_url} provenance="upload" guides={guides}
+        exif={project.exif}
         analysisEnabled={active && authenticated}
         selectedCandidateId={draft.selected_candidate_id} busy={!!operation} activity={operation === "archive" ? "save" : operation === "reload" ? null : operation}
         cropDirty={dirty} hasPendingChanges={dirty} confirmationPending={false}

@@ -10,6 +10,7 @@ Each record should state status, context, decision, consequences, alternatives, 
 
 Current decisions:
 
+- [ADR-0013：作品拍摄参数白名单](0013-camera-exif-whitelist.md)
 - [ADR-0012：账号创作偏好与作品辅助线快照](0012-account-defaults-and-project-guide-snapshots.md)
 - [ADR-0011：浏览器像素分析与已归档作品统计](0011-browser-pixel-analysis-and-archive-statistics.md)
 - [ADR-0010：共享演示账号与独立持久作品](0010-demo-account-and-durable-projects.md)

@@ -8,6 +8,15 @@ export interface WorkspacePreferences {
   intent: AnalysisIntent;
   guides: CompositionGuide[];
 }
+export interface PhotoExif {
+  camera_make?: string;
+  camera_model?: string;
+  lens_model?: string;
+  focal_length_mm?: number;
+  aperture?: number;
+  exposure_seconds?: number;
+  iso?: number;
+}
 export interface ProjectDraft {
   crop: CropBox;
   selected_candidate_id: CropCandidate["id"] | null;
@@ -38,6 +47,7 @@ export interface ProjectDetail extends ProjectSummary {
   intent: AnalysisIntent; draft: ProjectDraft; active_job_id: string | null;
   reference: ProjectReference | null;
   published: PublishedProject | null;
+  exif?: PhotoExif;
 }
 
 // This token lives only in memory. The actual login credential is an HttpOnly cookie.

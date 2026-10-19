@@ -107,7 +107,8 @@ class ProjectStore:
                     original_name TEXT NOT NULL, preview_name TEXT NOT NULL,
                     intent_json TEXT NOT NULL, draft_json TEXT NOT NULL,
                     published_json TEXT, reference_json TEXT, active_job_id TEXT,
-                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT,
+                    exif_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS idx_projects_owner_updated
                     ON projects(owner_id, updated_at DESC);
@@ -121,6 +122,14 @@ class ProjectStore:
                     project_deleted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
                 );
             """)
+            # Serialize schema detection with ALTER across API processes.
+            # Existing works and assets remain untouched, with empty EXIF.
+            connection.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(projects)")}
+            if "exif_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE projects ADD COLUMN exif_json TEXT NOT NULL DEFAULT '{}'"
+                )
 
     def _directory(self, project_id: str) -> Path:
         if not re.fullmatch(r"[0-9a-f]{32}", project_id):
@@ -175,7 +184,7 @@ class ProjectStore:
             "reference": json.loads(row["reference_json"]) if row["reference_json"] else None,
             "active_job_id": row["active_job_id"],
             "source": "upload",
-            "exif": {},
+            "exif": json.loads(row["exif_json"]),
             "has_draft_changes": not published
             or (draft != published["draft"] or intent != published["intent"]),
             "original_url": f"{prefix}/original",
@@ -229,8 +238,9 @@ class ProjectStore:
                     connection.execute(
                         """INSERT INTO projects (
                             id,owner_id,title,revision,image_width,image_height,source_format,
-                            original_name,preview_name,intent_json,draft_json,created_at,updated_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            original_name,preview_name,intent_json,draft_json,created_at,updated_at,
+                            exif_json
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
                             project_id,
                             owner_id,
@@ -245,6 +255,7 @@ class ProjectStore:
                             _json(draft),
                             now,
                             now,
+                            _json(decoded.exif),
                         ),
                     )
                     created_row = connection.execute(

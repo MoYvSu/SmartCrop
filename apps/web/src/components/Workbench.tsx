@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import {
-  Camera, Check, ChevronDown, Crop, Download, ImagePlus, Images,
+  Check, ChevronDown, Crop, Download, ImagePlus, Images,
   LoaderCircle, MessageSquareText, Move, RotateCcw, Save, ScanEye, SlidersHorizontal, Sparkles,
 } from "lucide-react";
 
@@ -18,9 +18,12 @@ import { CropPreview } from "./CropPreview";
 import { ReportPanel } from "./ReportPanel";
 import { SelectionReasonPanel } from "./SelectionReasonPanel";
 import { ImageAnalysisPanel } from "./ImageAnalysisPanel";
+import { ShotParameters } from "./ShotParameters";
+import type { PhotoExif } from "../workspaceApi";
 import "./workbench.css";
 
 export interface WorkbenchProps {
+  exif?: PhotoExif;
   analysisEnabled?: boolean;
   persistence?: {
     title: string; state: "draft" | "archived"; hasDraftChanges: boolean; saveStatus: string;
@@ -89,7 +92,7 @@ export function Workbench({
   cropDirty, hasPendingChanges, confirmationPending, editingLocked, jobExpired, manualOnly,
   aspectRatio, reportScopeChanged, onReset, onSave, onDownload, onCropChange, onSelectCandidate,
   onRestoreSuggestion, onToggleGuide, selectionReasons, selectionNote, onReasonsChange, onNoteChange,
-  persistence, analysisEnabled = true,
+  persistence, analysisEnabled = true, exif,
 }: WorkbenchProps) {
   const [view, setView] = useState<View>("crop");
   const [tool, setTool] = useState<Tool>("image");
@@ -249,8 +252,7 @@ export function Workbench({
 
           <section className="wb-tool-panel" role="tabpanel" id={`${id}-tool-panel-exif`}
             aria-labelledby={`${id}-tool-exif`} hidden={tool !== "exif"} tabIndex={0}>
-            <div className="wb-feature-notice"><Camera size={26} aria-hidden="true" /><h2>拍摄参数尚未接入</h2>
-              <p>当前版本尚未读取 EXIF，因此不展示相机、焦距、光圈、快门和 ISO，也不推测照片是否包含这些参数。</p></div>
+            <ShotParameters exif={exif} sample={pregenerated} />
           </section>
 
           <details className="wb-reasons-details">

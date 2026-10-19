@@ -300,6 +300,53 @@ def test_environment_password_change_revokes_existing_sessions(settings: Setting
     assert login(changed, password="replacement-test-password").json()["user"] == user
 
 
+def test_default_demo_login_keeps_hash_and_session_on_restart(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("SMARTCROP_DEMO_PASSWORD", raising=False)
+    settings = Settings.from_env(tmp_path)
+    first, _ = make_client(settings)
+    user = login(first, password="123456").json()["user"]
+    token = first.cookies["smartcrop_session"]
+    before = db_row(settings, "SELECT password_hash FROM auth_users")["password_hash"]
+    assert before != "123456"
+    assert not (settings.data_dir / "demo-credentials.txt").exists()
+
+    restarted, _ = make_client(settings)
+    restarted.cookies.set("smartcrop_session", token)
+    assert restarted.get("/v1/auth/session").json()["user"] == user
+    assert db_row(settings, "SELECT password_hash FROM auth_users")["password_hash"] == before
+
+
+def test_switch_to_default_demo_password_preserves_saved_projects(
+    settings: Settings,
+    jpeg_bytes: bytes,
+    monkeypatch,
+):
+    from smartcrop_api import create_app
+
+    with TestClient(create_app(settings, serve_web=False)) as old:
+        session = login(old).json()
+        old.headers.update({**ORIGIN, "X-SmartCrop-CSRF": session["csrf_token"]})
+        created = old.post(
+            "/v1/projects",
+            files={"file": ("saved-photo.jpg", jpeg_bytes, "image/jpeg")},
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+        old_token = old.cookies["smartcrop_session"]
+        user = session["user"]
+
+    monkeypatch.delenv("SMARTCROP_DEMO_PASSWORD", raising=False)
+    default_settings = replace(settings, demo_password=Settings.from_env().demo_password)
+    with TestClient(create_app(default_settings, serve_web=False)) as current:
+        current.cookies.set("smartcrop_session", old_token)
+        assert current.get("/v1/auth/session").json()["user"] is None
+        assert login(current).status_code == 401
+        assert login(current, password="123456").json()["user"] == user
+        saved = current.get(f"/v1/projects/{project_id}")
+        assert saved.status_code == 200
+        assert saved.json()["id"] == project_id
+
+
 def test_generated_credentials_are_private_stable_and_not_regenerated_when_file_is_deleted(
     settings: Settings,
     caplog,
@@ -382,7 +429,7 @@ def test_environment_password_retires_the_obsolete_initial_password_file(setting
     assert "不再包含有效密码" in retired
     assert login(updated, password=old).status_code == 401
     assert login(updated).json()["user"]["id"] == original_id
-    # Removing the environment override is not an implicit password reset.
+    # An explicitly empty password setting preserves an existing account.
     restarted, _ = make_client(generated)
     assert login(restarted).json()["user"]["id"] == original_id
     assert path.read_text(encoding="utf-8") == retired

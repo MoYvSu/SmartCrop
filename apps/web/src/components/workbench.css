@@ -79,6 +79,9 @@
 .wb-image-facts > div { padding: 12px 0; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
 .wb-image-facts dt { color: var(--muted-foreground); }
 .wb-image-facts dd { margin: 0; color: var(--foreground); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.wb-exif-facts > div { align-items: baseline; }
+.wb-exif-facts dt { flex-shrink: 0; }
+.wb-exif-facts dd { min-width: 0; max-width: 75%; overflow-wrap: anywhere; line-height: 1.6; }
 .workbench .wb-inspector .candidate-panel { padding: 0; border: 0; }
 .workbench .wb-inspector .candidate-heading { display: block; }
 .workbench .wb-inspector .candidate-heading .eyebrow { display: none; }

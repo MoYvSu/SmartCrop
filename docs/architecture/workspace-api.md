@@ -31,7 +31,7 @@
 
 `state=archived` 表示已有归档；有新调整的归档项目仍属于 archived，并通过 `has_draft_changes` 标注。服务端 `state=draft` 筛选还包括有待归档调整的项目；当前前端“草稿”筛选只显示未归档项目，“待更新归档”在概览单独计数。页间并发更新可能改变列表顺序，刷新可重新读取，不承诺多页列表是冻结快照。
 
-detail 的稳定字段：`id/title/state/revision/created_at/updated_at/archived_at`，`image_width/image_height`，`intent`，`draft`，`published`，`reference`，`active_job_id`，`has_draft_changes`，四个资源 URL。`source=upload`，当前 `exif={}`；全部元数据剥离，不是已接入 EXIF 白名单。
+detail 的稳定字段：`id/title/state/revision/created_at/updated_at/archived_at`，`image_width/image_height`，`intent`，`draft`，`published`，`reference`，`active_job_id`，`has_draft_changes`，四个资源 URL。`source=upload`；`exif` 为拍摄参数白名单对象，可包含 `camera_make/camera_model/lens_model` 字符串与 `focal_length_mm/aperture/exposure_seconds/iso` 数值，缺失项省略。旧作品或无参数图片返回 `{}`。参数只读，不接受 PATCH 修改；下载图像仍去除元数据，详见 [ADR-0013](../decisions/0013-camera-exif-whitelist.md)。
 
 draft 包含裁剪框、辅助线 `guides`、所选候选、参考来源、选择依据与说明。published 为归档时独立快照，包含 `version/created_at/width/height/draft/intent/reference`，并附带与 draft 相同的 `guides`。旧作品缺该字段时固定返回三分线，不跟随账号新偏好。reference 可空，包含任务 ID、状态、候选、原始建议、报告与 `capability_status`，后者区分 Mock 与模型能力状态。没有 AI 报告不阻止保存或归档。
 

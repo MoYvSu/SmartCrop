@@ -1,8 +1,8 @@
 # SmartCrop 摄影工作室 V2：产品范围与数据边界
 
-状态：第四阶段已接入账号创作偏好、新建自动采用与作品辅助线恢复；拍摄参数仍待实现。
+状态：第四阶段已接入账号创作偏好、新建自动采用与作品辅助线恢复；2026-10-19 补入工作台拍摄参数读取，设备档案与画像仍不扩展。
 日期：2026-10-17。
-当前完成五页导航、登录、自动草稿、恢复编辑、归档删除，不依赖模型的亮度、色相、主色和已归档作品统计，以及摄影档案主动保存偏好。AI 按需运行，项目资源不依赖临时任务。[第一阶段](../design/desktop-workspace-v2-phase-1.md)保留历史范围，保存边界见[第二阶段](../design/desktop-workspace-v2-phase-2.md)，图表与统计见[第三阶段交付](../design/desktop-workspace-v2-phase-3.md)及 [ADR-0011](../decisions/0011-browser-pixel-analysis-and-archive-statistics.md)，偏好与色彩文案见[第四阶段交付](../design/desktop-workspace-v2-phase-4.md)及 [ADR-0012](../decisions/0012-account-defaults-and-project-guide-snapshots.md)。EXIF 和设备档案仍待实现。
+当前完成五页导航、登录、自动草稿、恢复编辑、归档删除，不依赖模型的亮度、色相、主色和已归档作品统计，以及摄影档案主动保存偏好。AI 按需运行，项目资源不依赖临时任务。[第一阶段](../design/desktop-workspace-v2-phase-1.md)保留历史范围，保存边界见[第二阶段](../design/desktop-workspace-v2-phase-2.md)，图表与统计见[第三阶段交付](../design/desktop-workspace-v2-phase-3.md)及 [ADR-0011](../decisions/0011-browser-pixel-analysis-and-archive-statistics.md)，偏好与色彩文案见[第四阶段交付](../design/desktop-workspace-v2-phase-4.md)及 [ADR-0012](../decisions/0012-account-defaults-and-project-guide-snapshots.md)。工作台 EXIF 参数范围见 [ADR-0013](../decisions/0013-camera-exif-whitelist.md)，设备档案仍待实现。
 
 - [宽屏工作室主设计](../design/desktop-workspace-v2.md)：导航、整体布局与视觉方向。
 - [五页功能布局附录](../design/desktop-workspace-v2-pages.md)：页面区块、交互及状态设计。
@@ -105,8 +105,7 @@ AI、翻译与本地统计均标明来源和状态，未调用、运行中、不
 
 ## 8. 原图信息与像素指标边界
 
-持久图像仅保留规范化像素，全部 EXIF/附加元数据均被剥离，包含 GPS 和设备序列号；因此当前不展示相机参数，不假装已经提取。第三阶段的像素分析也不恢复或猜测这些字段。
-后续如接入设备、镜头、快门、光圈、ISO 等白名单字段，需单独实现隐私筛选与测试；缺失时显示“未记录”，不通过模型猜测。
+持久图像仅保留规范化像素，全部 EXIF/附加元数据均被剥离，包含 GPS 和设备序列号。2026-10-19 起，新导入作品另存相机、镜头、焦距、光圈、快门和 ISO 白名单并在工作台展示；旧作品无法回填，缺失时显示“未记录”。参数不通过模型猜测，不接入用户画像或摄影档案，见 [ADR-0013](../decisions/0013-camera-exif-whitelist.md)。
 如未来另行提供未经处理的原始文件备份，需要先重新明确元数据范围；本稿不默认增加该能力。
 透明像素、低饱和像素、色彩空间及采样方式须定义一致口径；黑白图不强行给出有彩色色相结论。
 裁剪前后图表只解释保留内容的变化；亮度、色相、边缘或保留面积不能转换为审美分数或优劣排名。

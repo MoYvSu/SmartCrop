@@ -30,3 +30,24 @@ def test_image_decode_concurrency_reads_environment(
     settings = Settings.from_env(tmp_path)
 
     assert settings.image_decode_concurrency == 3
+
+
+def test_demo_password_defaults_to_the_presentation_password(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("SMARTCROP_DEMO_PASSWORD", raising=False)
+
+    assert _settings(tmp_path, image_decode_concurrency=2).demo_password == "123456"
+    assert Settings.from_env(tmp_path).demo_password == "123456"
+
+
+@pytest.mark.parametrize("password", ["private-deployment-password", ""])
+def test_explicit_demo_password_environment_is_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    password: str,
+) -> None:
+    monkeypatch.setenv("SMARTCROP_DEMO_PASSWORD", password)
+
+    assert Settings.from_env(tmp_path).demo_password == password

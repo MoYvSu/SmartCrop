@@ -15,7 +15,8 @@ import pytest
 import smartcrop_runtime.projects as project_module
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from PIL import Image, PngImagePlugin
+from PIL import ExifTags, Image, PngImagePlugin
+from PIL.TiffImagePlugin import IFDRational
 from smartcrop_api.app import _job_response
 from smartcrop_api.projects import _blocking, register_project_routes
 from smartcrop_contracts import AnalysisIntent
@@ -279,6 +280,100 @@ def test_project_assets_strip_all_exif_and_png_text_metadata(project_app):
         assert image.mode == "RGBA"
         assert "GPSLatitude" not in image.info
     assert response.json()["exif"] == {}
+
+
+@pytest.mark.parametrize("source_format", ["JPEG", "PNG", "WEBP"])
+def test_camera_exif_survives_project_reload_but_not_persistent_image_assets(
+    project_app, source_format,
+):
+    client, settings, _jobs, _projects = project_app
+    exif = Image.Exif()
+    exif[ExifTags.Base.Make] = "Canon"
+    exif[ExifTags.Base.Model] = "Canon EOS R6"
+    exif[ExifTags.IFD.Exif] = {
+        ExifTags.Base.LensModel: "RF 24-105mm F4",
+        ExifTags.Base.FocalLength: IFDRational(35, 1),
+        ExifTags.Base.FNumber: IFDRational(28, 10),
+        ExifTags.Base.ExposureTime: IFDRational(1, 125),
+        ExifTags.Base.ISOSpeedRatings: 400,
+        ExifTags.Base.DateTimeOriginal: "2026:10:19 18:30:00",
+        ExifTags.Base.BodySerialNumber: "private-camera-serial",
+        ExifTags.Base.MakerNote: b"private-maker-note",
+    }
+    exif[ExifTags.Base.Artist] = "private-author"
+    exif[ExifTags.IFD.GPSInfo] = {
+        1: "N", 2: (IFDRational(39), IFDRational(1), IFDRational(2)),
+    }
+    payload = BytesIO()
+    # Alpha exercises the PNG normalized-original branch as well as JPEG.
+    mode, color = ("RGBA", (10, 20, 30, 100)) if source_format == "PNG" else ("RGB", "green")
+    Image.new(mode, (160, 120), color).save(payload, format=source_format, exif=exif)
+    mime = "image/jpeg" if source_format == "JPEG" else f"image/{source_format.lower()}"
+    response = client.post(
+        "/v1/projects",
+        files={"file": (f"camera.{source_format.lower()}", payload.getvalue(), mime)},
+    )
+    assert response.status_code == 201
+    project = response.json()
+    expected = {
+        "camera_make": "Canon", "camera_model": "Canon EOS R6", "lens_model": "RF 24-105mm F4",
+        "focal_length_mm": 35, "aperture": 2.8, "exposure_seconds": 0.008, "iso": 400,
+    }
+    assert project["exif"] == expected
+    assert client.get(f"/v1/projects/{project['id']}").json()["exif"] == expected
+    assert client.get("/v1/projects").json()["items"][0]["exif"] == expected
+    archived = client.post(
+        f"/v1/projects/{project['id']}/archive", json={"revision": 1},
+    ).json()
+    assert archived["exif"] == expected
+    _new_app, _new_jobs, restarted = _app(settings)
+    assert restarted.get_project(project["id"], "owner-a")["exif"] == expected
+    with sqlite3.connect(settings.database_path) as connection:
+        stored = connection.execute("SELECT exif_json FROM projects").fetchone()[0]
+        assert json.loads(stored) == expected
+        assert "private" not in stored and "2026:" not in stored
+    for asset in ("original_url", "preview_url", "crop_url", "published_url"):
+        image_bytes = client.get(archived[asset]).content
+        with _decode(image_bytes) as image:
+            assert not image.getexif()
+            assert "exif" not in image.info
+        assert b"private-camera-serial" not in image_bytes
+        assert b"private-author" not in image_bytes
+
+
+def test_project_import_keeps_valid_camera_fields_when_numeric_exif_is_malformed(project_app):
+    client, _settings_value, _jobs, _projects = project_app
+    exif = Image.Exif()
+    exif[ExifTags.Base.Model] = "Camera with damaged measurements"
+    exif[ExifTags.IFD.Exif] = {
+        ExifTags.Base.FocalLength: IFDRational(0, 0),
+        ExifTags.Base.FNumber: IFDRational(1, 0),
+        ExifTags.Base.ExposureTime: IFDRational(0, 1),
+        ExifTags.Base.ISOSpeedRatings: 0,
+    }
+    payload = BytesIO()
+    Image.new("RGB", (160, 120), "green").save(payload, format="JPEG", exif=exif)
+    project = _create(client, payload.getvalue())
+    assert project["exif"] == {"camera_model": "Camera with damaged measurements"}
+    assert client.get(project["crop_url"]).status_code == 200
+
+
+def test_project_exif_schema_migration_preserves_legacy_work_and_assets(project_app, jpeg_bytes):
+    client, settings, _jobs, projects = project_app
+    legacy = _create(client, jpeg_bytes, title="已有作品")
+    original = client.get(legacy["original_url"]).content
+    with projects._connect() as connection:
+        connection.execute("ALTER TABLE projects DROP COLUMN exif_json")
+    _new_app, _new_jobs, migrated = _app(settings)
+    restored = migrated.get_project(legacy["id"], "owner-a")
+    assert restored == legacy
+    assert restored["exif"] == {}
+    assert migrated.asset_path(legacy["id"], "owner-a", "original").read_bytes() == original
+    # Repeated initialization is harmless and later uploads still succeed.
+    migrated.initialize()
+    assert migrated.create_project(
+        "owner-a", "新作品", jpeg_bytes, "image/jpeg", settings.max_upload_bytes, AnalysisIntent(),
+    )["exif"] == {}
 
 
 def test_revision_conflict_does_not_overwrite_draft(project_app, jpeg_bytes):

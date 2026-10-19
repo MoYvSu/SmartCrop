@@ -28,8 +28,8 @@ _LOGIN_WINDOW_SECONDS = 15 * 60
 _MAX_LOGIN_BODY_BYTES = 8192
 _CREDENTIALS_HEADER = "# 仅首次生成；如配置 SMARTCROP_DEMO_PASSWORD，则以环境变量为准。\n"
 _RETIRED_CREDENTIALS = (
-    "# 此账号的密码已由 SMARTCROP_DEMO_PASSWORD 环境变量管理。\n"
-    "# 本文件不再包含有效密码；移除环境变量不会重置数据库中的现有密码。\n"
+    "# 此账号的密码已由服务端演示账号配置管理。\n"
+    "# 本文件不再包含有效密码；账号密码以当前服务端配置为准。\n"
 )
 
 

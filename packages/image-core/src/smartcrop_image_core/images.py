@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from smartcrop_contracts import CropBox
+
+from .exif import extract_camera_exif
 
 ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -21,6 +23,7 @@ class ImageValidationError(ValueError):
 class DecodedImage:
     image: Image.Image
     source_format: str
+    exif: dict[str, str | int | float] = field(default_factory=dict)
 
     @property
     def width(self) -> int:
@@ -47,12 +50,18 @@ def decode_image(data: bytes, content_type: str | None, max_bytes: int) -> Decod
             if opened.width * opened.height > MAX_IMAGE_PIXELS:
                 raise ImageValidationError("图片像素数量过大")
             opened.load()
-            oriented = ImageOps.exif_transpose(opened)
+            exif = extract_camera_exif(opened)
+            try:
+                oriented = ImageOps.exif_transpose(opened)
+            except Exception:
+                # Once pixels have decoded successfully, a malformed EXIF
+                # orientation must not prevent an otherwise usable upload.
+                oriented = opened.copy()
             if oriented.width < MIN_EDGE or oriented.height < MIN_EDGE:
                 raise ImageValidationError(f"图片宽高至少为 {MIN_EDGE} 像素")
             if oriented.mode not in {"RGB", "RGBA"}:
                 oriented = oriented.convert("RGBA" if "transparency" in oriented.info else "RGB")
-            return DecodedImage(image=oriented.copy(), source_format=source_format)
+            return DecodedImage(image=oriented.copy(), source_format=source_format, exif=exif)
     except ImageValidationError:
         raise
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as exc:

@@ -69,7 +69,7 @@ SMARTCROP_MODEL_PATH=/root/autodl-tmp/models/Venus-Q-Stage2
 SMARTCROP_LOAD_IN_8BIT=true
 SMARTCROP_DEMO_USERNAME=demo
 SMARTCROP_DEMO_DISPLAY_NAME=演示摄影师
-SMARTCROP_DEMO_PASSWORD=
+SMARTCROP_DEMO_PASSWORD=123456
 SMARTCROP_SESSION_COOKIE_SECURE=true
 SMARTCROP_SESSION_TTL_SECONDS=604800
 SMARTCROP_REPORT_TRANSLATOR=deepseek
@@ -125,14 +125,14 @@ smartcrop-api --host 127.0.0.1 --port 8000
 
 ## 演示账号与持久作品
 
-用户名默认 `demo`。`SMARTCROP_DEMO_PASSWORD` 留空时，API 第一次启动随机生成密码到
-`/root/autodl-tmp/smartcrop-data/demo-credentials.txt`，只在受信终端私下查看，不将文件或内容发布到 Git、截图或日志。
-该文件不是网页 API；后续启动沿用数据库中的账号和密码，不重新生成。若已有数据库且凭据文件丢失，
-通过私有环境变量 `SMARTCROP_DEMO_PASSWORD` 设置新密码再重启 API；轮换使旧会话失效。
-如从一开始就使用环境变量密码，不会生成可读密码文件；移除环境变量后也不会重置已存在账号。
+演示账号默认 `demo / 123456`，仅适用于受控展示，公网部署请覆盖为独立强密码。
+非空的 `SMARTCROP_DEMO_PASSWORD` 优先于默认值；重启 API 会更新同一账号密码并撤销旧会话，作品不丢失。
+只有显式设置空字符串时，新数据库才随机生成密码到数据目录的 `demo-credentials.txt`，已有账号则保留当前密码。
+移除环境变量会恢复默认 `123456` 并在下次启动时生效；普通重启不重复撤销会话。不要把私有密码写进日志。
 
 同一演示账号的所有访问者共用作品库，不具备不同人员隔离。仅供受控展示，请使用授权素材，
-勿上传敏感照片。原图保存为去除全部元数据的规范化图像，不是原始文件的无损字节备份。
+勿上传敏感照片。图像保存为去除全部元数据的规范化图像，不是原始文件的无损字节备份。
+新导入时另存相机、镜头和曝光参数白名单，GPS、日期、序列号等不保留；旧作品不回填参数。
 草稿、归档成片、历史版本位于数据目录 `projects/`，编辑快照和 AI 参考在 SQLite 中，保留至主动删除。
 `SMARTCROP_RETENTION_SECONDS` 只影响临时 `jobs/`，不能用它清理作品库。
 删除项目会清除专属持久资源并阻断关联任务读取；分析任务临时副本仍按原有到期策略清理，

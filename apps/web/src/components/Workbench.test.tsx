@@ -61,18 +61,31 @@ describe("Workbench", () => {
     expect(markup).not.toContain('aria-label="当前方案：平衡构图"');
   });
 
-  it("offers local pixel analysis while keeping unavailable metadata explicit", () => {
+  it("offers local pixel analysis without inventing metadata for the fixed sample", () => {
     const markup = renderToStaticMarkup(<Workbench {...props()} />);
     expect(markup).not.toContain("图像分析尚未接入");
     expect(markup).toContain("当前裁剪");
     expect(markup).toContain("原图");
-    expect(markup).toContain("拍摄参数尚未接入");
-    expect(markup).toContain("尚未读取 EXIF");
+    expect(markup).toContain("样例未提供拍摄参数");
+    expect(markup).not.toContain("拍摄参数尚未接入");
     expect(markup).toContain("没有调用当前模型");
     expect(markup).toContain("当前临时任务");
     expect(markup).not.toContain("完成并归档");
     expect(markup).not.toContain("草稿已保存");
     expect(markup).not.toContain("美学分数：");
+  });
+
+  it("shows saved camera parameters in a persistent manual project without AI", () => {
+    const markup = renderToStaticMarkup(<Workbench {...manualProject({ exif: {
+      camera_make: "Canon", camera_model: "Canon EOS R6", focal_length_mm: 50,
+      aperture: 2.8, exposure_seconds: 1 / 125, iso: 100,
+    } })} />);
+    expect(markup).toContain("Canon EOS R6");
+    expect(markup).toContain("50 mm");
+    expect(markup).toContain("1/125 秒");
+    expect(markup).toContain("f/2.8");
+    expect(markup).toContain("未记录");
+    expect(markup).not.toContain("Canon Canon");
   });
 
   it("locks editing, saving and downloading when a task expires while retaining read-only views", () => {

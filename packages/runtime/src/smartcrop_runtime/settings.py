@@ -35,7 +35,7 @@ class Settings:
     p0_capabilities_verified: bool = False
     demo_username: str = "demo"
     demo_display_name: str = "演示摄影师"
-    demo_password: str = field(default="", repr=False)
+    demo_password: str = field(default="123456", repr=False)
     session_ttl_seconds: int = 7 * 24 * 3600
     session_cookie_secure: bool = False
 
@@ -92,7 +92,7 @@ class Settings:
             ),
             demo_username=os.getenv("SMARTCROP_DEMO_USERNAME", "demo").strip(),
             demo_display_name=os.getenv("SMARTCROP_DEMO_DISPLAY_NAME", "演示摄影师").strip(),
-            demo_password=os.getenv("SMARTCROP_DEMO_PASSWORD", ""),
+            demo_password=os.getenv("SMARTCROP_DEMO_PASSWORD", "123456"),
             session_ttl_seconds=int(os.getenv("SMARTCROP_SESSION_TTL_SECONDS", 7 * 24 * 3600)),
             session_cookie_secure=_as_bool(os.getenv("SMARTCROP_SESSION_COOKIE_SECURE")),
         )
